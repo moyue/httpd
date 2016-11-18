@@ -1,24 +1,31 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><!--
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="Content-Type" />
+<!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>How-To / Tutorials - Apache HTTP Server</title>
+<title>How-To / Tutorials - Apache HTTP Server Version 2.5</title>
 <link href="../style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="../style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
-<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" />
+<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="../style/css/prettify.css" />
+<script src="../style/scripts/prettify.min.js" type="text/javascript">
+</script>
+
 <link href="../images/favicon.ico" rel="shortcut icon" /></head>
 <body id="manual-page" class="no-sidebar"><div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
-<img alt="" src="../images/feather.gif" /></div>
+<img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="../"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a></div><div id="page-content"><div id="preamble"><h1>How-To / Tutorials</h1>
 <div class="toplang">
 <p><span>Available Languages: </span><a href="../en/howto/" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/howto/" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/howto/" hreflang="fr" rel="alternate" title="Français">&nbsp;fr&nbsp;</a> |
 <a href="../ja/howto/" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
 <a href="../ko/howto/" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
 <a href="../zh-cn/howto/" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
@@ -60,7 +67,7 @@
         <p>The CGI (Common Gateway Interface) defines a way for a web
         server to interact with external content-generating programs,
         which are often referred to as CGI programs or CGI scripts. It
-        is the simplest, and most common, way to put dynamic content on
+        is a simple way to put dynamic content on
         your web site. This document will be an introduction to setting
         up CGI on your Apache web server, and getting started writing
         CGI programs.</p>
@@ -80,6 +87,20 @@
         <p>See: <a href="htaccess.html"><code>.htaccess</code> files</a></p>
       </dd>
     </dl>
+
+    <dl>
+      <dt>HTTP/2 with httpd</dt>
+      <dd>
+      <p>HTTP/2 is the evolution of the world's most successful application layer protocol, HTTP. 
+        It focuses on making more efficient use of network resources without changing the semantics of HTTP.
+        This guide explains how HTTP/2 is implemented in httpd, showing basic configurations tips and 
+        best practices.
+      </p>
+
+        <p>See: <a href="http2.html">HTTP/2 guide</a></p>
+      </dd>
+    </dl>
+
 
     <dl>
       <dt>Introduction to Server Side Includes</dt>
@@ -107,13 +128,32 @@
       </dd>
     </dl>
 
+    <dl>
+      <dt>Reverse Proxy guide</dt>
+      <dd>
+        <p>Apache httpd has extensive capabilities as a reverse proxy server using the
+        <code class="directive"><a href="../mod/mod_proxy.html#proxypass">ProxyPass</a></code> directive as well as
+        <code class="directive"><a href="../mod/mod_proxy.html#balancermember">BalancerMember</a></code> to create sophisticated
+        reverse proxying implementations which provide for high-availability, load
+        balancing and failover, cloud-based clustering and dynamic on-the-fly reconfiguration.</p>
+
+        <p>See: <a href="reverse_proxy.html">Reverse proxy guide</a></p>
+      </dd>
+    </dl>
+
   </div></div>
 <div class="bottomlang">
 <p><span>Available Languages: </span><a href="../en/howto/" title="English">&nbsp;en&nbsp;</a> |
+<a href="../es/howto/" hreflang="es" rel="alternate" title="Español">&nbsp;es&nbsp;</a> |
+<a href="../fr/howto/" hreflang="fr" rel="alternate" title="Français">&nbsp;fr&nbsp;</a> |
 <a href="../ja/howto/" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
 <a href="../ko/howto/" hreflang="ko" rel="alternate" title="Korean">&nbsp;ko&nbsp;</a> |
 <a href="../zh-cn/howto/" hreflang="zh-cn" rel="alternate" title="Simplified Chinese">&nbsp;zh-cn&nbsp;</a></p>
 </div><div id="footer">
-<p class="apache">Copyright 2012 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div>
+<p class="apache">Copyright 2016 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+if (typeof(prettyPrint) !== 'undefined') {
+    prettyPrint();
+}
+//--><!]]></script>
 </body></html>

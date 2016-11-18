@@ -29,7 +29,8 @@ include $(AP_WORK)/build/NWGNUhead.inc
 XINCDIRS	+= \
 			$(APR)/include \
 			$(APRUTIL)/include \
-			$(AP_WORK)/include \
+			$(SRC)/include \
+			$(STDMOD)/ssl \
 			$(NWOS) \
 			$(EOLIST)
 

@@ -98,8 +98,9 @@ static const TRANS priorities[] = {
     {NULL,      -1},
 };
 
-static char* chomp(char* str) {
-    apr_size_t p = strlen(str);
+static char* chomp(char* str)
+{
+    long p = (long)strlen(str);
     while (--p >= 0) {
         switch ((char)(str[p])) {
         case '\015':
@@ -260,7 +261,8 @@ static const char *cgi_header_in(apreq_handle_t *handle,
     apr_pool_t *p = handle->pool;
     char *key = apr_pstrcat(p, "HTTP_", name, NULL);
     char *k, *value = NULL;
-    for (k = key; *k; ++k) {
+
+    for (k = key+5; *k; ++k) {
         if (*k == '-')
             *k = '_';
         else
@@ -268,17 +270,15 @@ static const char *cgi_header_in(apreq_handle_t *handle,
     }
 
     if (!strcmp(key, "HTTP_CONTENT_TYPE")
-        || !strcmp(key, "HTTP_CONTENT_LENGTH"))
-        {
-            key += 5; /* strlen("HTTP_") */
-        }
+        || !strcmp(key, "HTTP_CONTENT_LENGTH")) {
+
+        key += 5; /* strlen("HTTP_") */
+    }
 
     apr_env_get(&value, key, p);
 
     return value;
 }
-
-
 
 
 static void cgi_log_error(const char *file, int line, int level,
@@ -352,7 +352,7 @@ static void init_body(apreq_handle_t *handle)
 
     if (cl_header != NULL) {
         char *dummy;
-        apr_int64_t content_length = apr_strtoi64(cl_header, &dummy, 0);
+        apr_int64_t content_length = apr_strtoi64(cl_header, &dummy, 10);
 
         if (dummy == NULL || *dummy != 0) {
             req->body_status = APREQ_ERROR_BADHEADER;
@@ -949,7 +949,8 @@ static apr_status_t ba_cleanup(void *data)
 
  Definately more work needed here...
 */
-static int is_interactive_mode(apr_pool_t *pool) {
+static int is_interactive_mode(apr_pool_t *pool)
+{
     char *value = NULL, qs[] = "GATEWAY_INTERFACE";
     apr_status_t rv;
 

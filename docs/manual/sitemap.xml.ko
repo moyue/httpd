@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="EUC-KR" ?>
 <!DOCTYPE sitemap SYSTEM "./style/sitemap.dtd">
 <?xml-stylesheet type="text/xsl" href="./style/manual.ko.xsl"?>
-<!-- English Revision: 151408:1075625 (outdated) -->
+<!-- English Revision: 151408:1732099 (outdated) -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -59,7 +59,7 @@
 <page href="filter.html">필터</page>
 <page href="suexec.html">suEXEC 지원</page>
 <page href="misc/perf-tuning.html">성능향상 힌트</page>
-<page href="misc/rewriteguide.html">URL 재작성(rewriting) 지침서</page>
+<page href="rewrite/">URL 재작성(rewriting) 지침서</page>
 </category>
 
 <category id="vhosts">
@@ -72,13 +72,6 @@
 <page href="vhosts/details.html">가상호스트 찾기에 대한 자세한 설명</page>
 <page href="vhosts/fd-limits.html">파일기술자(file descriptor) 한계</page>
 <page href="dns-caveats.html">DNS와 아파치와 관련된 사항</page>
-</category>
-
-<category id="faq">
-<title>아파치 서버에 대해 자주 물어보는 질문</title>
-<page href="faq/">개요</page>
-<page href="faq/support.html">지원</page>
-<page href="faq/error.html">오류문</page>
 </category>
 
 <category id="ssl">
@@ -111,7 +104,6 @@
 사용하기</page>
 <page href="platform/perf-hp.html">HPUX에서 고성능 웹서버
 실행하기</page>
-<page href="platform/ebcdic.html">아파치 EBCDIC 포팅</page>
 </category>
 
 <category id="programs">

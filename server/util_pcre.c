@@ -45,7 +45,13 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "httpd.h"
 #include "apr_strings.h"
+#include "apr_tables.h"
 #include "pcre.h"
+
+/* PCRE_DUPNAMES is only present since version 6.7 of PCRE */
+#ifndef PCRE_DUPNAMES
+#error PCRE Version 6.7 or later required!
+#else
 
 #define APR_WANT_STRFUNC
 #include "apr_want.h"
@@ -65,6 +71,18 @@ static const char *const pstring[] = {
     "bad argument",             /* AP_REG_INVARG */
     "match failed"              /* AP_REG_NOMATCH */
 };
+
+AP_DECLARE(const char *) ap_pcre_version_string(int which)
+{
+    switch (which) {
+    case AP_REG_PCRE_COMPILED:
+        return APR_STRINGIFY(PCRE_MAJOR) "." APR_STRINGIFY(PCRE_MINOR) " " APR_STRINGIFY(PCRE_DATE);
+    case AP_REG_PCRE_LOADED:
+        return pcre_version();
+    default:
+        return "Unknown";
+    }
+}
 
 AP_DECLARE(apr_size_t) ap_regerror(int errcode, const ap_regex_t *preg,
                                    char *errbuf, apr_size_t errbuf_size)
@@ -123,7 +141,8 @@ AP_DECLARE(int) ap_regcomp(ap_regex_t * preg, const char *pattern, int cflags)
 {
     const char *errorptr;
     int erroffset;
-    int options = 0;
+    int errcode = 0;
+    int options = PCRE_DUPNAMES;
 
     if ((cflags & AP_REG_ICASE) != 0)
         options |= PCRE_CASELESS;
@@ -133,11 +152,18 @@ AP_DECLARE(int) ap_regcomp(ap_regex_t * preg, const char *pattern, int cflags)
         options |= PCRE_DOTALL;
 
     preg->re_pcre =
-        pcre_compile(pattern, options, &errorptr, &erroffset, NULL);
+        pcre_compile2(pattern, options, &errcode, &errorptr, &erroffset, NULL);
     preg->re_erroffset = erroffset;
 
-    if (preg->re_pcre == NULL)
+    if (preg->re_pcre == NULL) {
+        /*
+         * There doesn't seem to be constants defined for compile time error
+         * codes. 21 is "failed to get memory" according to pcreapi(3).
+         */
+        if (errcode == 21)
+            return AP_REG_ESPACE;
         return AP_REG_INVARG;
+    }
 
     pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
                    PCRE_INFO_CAPTURECOUNT, &(preg->re_nsub));
@@ -247,5 +273,46 @@ AP_DECLARE(int) ap_regexec_len(const ap_regex_t *preg, const char *buff,
         }
     }
 }
+
+AP_DECLARE(int) ap_regname(const ap_regex_t *preg,
+                           apr_array_header_t *names, const char *prefix,
+                           int upper)
+{
+    int namecount;
+    int nameentrysize;
+    int i;
+    char *nametable;
+
+    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+                       PCRE_INFO_NAMECOUNT, &namecount);
+    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+                       PCRE_INFO_NAMEENTRYSIZE, &nameentrysize);
+    pcre_fullinfo((const pcre *)preg->re_pcre, NULL,
+                       PCRE_INFO_NAMETABLE, &nametable);
+
+    for (i = 0; i < namecount; i++) {
+        const char *offset = nametable + i * nameentrysize;
+        int capture = ((offset[0] << 8) + offset[1]);
+        while (names->nelts <= capture) {
+            apr_array_push(names);
+        }
+        if (upper || prefix) {
+            char *name = ((char **) names->elts)[capture] =
+                    prefix ? apr_pstrcat(names->pool, prefix, offset + 2,
+                            NULL) :
+                            apr_pstrdup(names->pool, offset + 2);
+            if (upper) {
+                ap_str_toupper(name);
+            }
+        }
+        else {
+            ((const char **)names->elts)[capture] = offset + 2;
+        }
+    }
+
+    return namecount;
+}
+
+#endif /* PCRE_DUPNAMES defined */
 
 /* End of pcreposix.c */

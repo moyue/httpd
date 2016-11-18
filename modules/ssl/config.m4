@@ -20,7 +20,6 @@ dnl #  list of module object files
 ssl_objs="dnl
 mod_ssl.lo dnl
 ssl_engine_config.lo dnl
-ssl_engine_dh.lo dnl
 ssl_engine_init.lo dnl
 ssl_engine_io.lo dnl
 ssl_engine_kernel.lo dnl
@@ -40,7 +39,6 @@ dnl #  hook module into the Autoconf mechanism (--enable-ssl option)
 APACHE_MODULE(ssl, [SSL/TLS support (mod_ssl)], $ssl_objs, , most, [
     APACHE_CHECK_OPENSSL
     if test "$ac_cv_openssl" = "yes" ; then
-        APR_ADDTO(MOD_SSL_LDADD, [\$(SSL_LIBS)])
         if test "x$enable_ssl" = "xshared"; then
            # The only symbol which needs to be exported is the module
            # structure, so ask libtool to hide everything else:
@@ -53,6 +51,14 @@ APACHE_MODULE(ssl, [SSL/TLS support (mod_ssl)], $ssl_objs, , most, [
 
 # Ensure that other modules can pick up mod_ssl.h
 APR_ADDTO(INCLUDES, [-I\$(top_srcdir)/$modpath_current])
+
+ssl_ct_objs="mod_ssl_ct.lo ssl_ct_log_config.lo ssl_ct_sct.lo ssl_ct_util.lo"
+APACHE_MODULE(ssl_ct, [Support for Certificate Transparency (RFC 6962)], $ssl_ct_objs, , no, [
+    dnl TODO: Check for OpenSSL >= 1.0.2
+    if test "$enable_ssl" = "no"; then
+        AC_MSG_ERROR([mod_ssl_ct is dependent on mod_ssl, which is not enabled.])
+    fi
+])
 
 dnl #  end of module specific part
 APACHE_MODPATH_FINISH

@@ -89,12 +89,13 @@ extern "C" {
 typedef void ap_reclaim_callback_fn_t(int childnum, pid_t pid,
                                       ap_generation_t gen);
 
-#ifndef NETWARE
+#if (!defined(WIN32) && !defined(NETWARE)) || defined(DOXYGEN)
 /**
  * Make sure all child processes that have been spawned by the parent process
  * have died.  This includes process registered as "other_children".
  *
- * @param terminate Either 1 or 0.  If 1, send the child processes SIGTERM
+ * @param terminate Not Implemented, value is ignored !!!
+ *        Either 1 or 0.  If 1, send the child processes SIGTERM
  *        each time through the loop.  If 0, give the process time to die
  *        on its own before signalling it.
  * @param mpm_callback Callback invoked for each dead child process
@@ -164,7 +165,8 @@ AP_DECLARE(int) ap_process_child_status(apr_proc_t *pid, apr_exit_why_e why, int
 
 AP_DECLARE(apr_status_t) ap_fatal_signal_setup(server_rec *s, apr_pool_t *in_pconf);
 AP_DECLARE(apr_status_t) ap_fatal_signal_child_setup(server_rec *s);
-#endif /* !NETWARE */
+
+#endif /* (!WIN32 && !NETWARE) || DOXYGEN */
 
 /**
  * Pool cleanup for end-generation hook implementation
@@ -232,7 +234,7 @@ AP_DECLARE(gid_t) ap_gname2id(const char *name);
 int initgroups(const char *name, gid_t basegid);
 #endif
 
-#if !defined(WIN32) || defined(DOXYGEN)
+#if (!defined(WIN32) && !defined(NETWARE)) || defined(DOXYGEN)
 
 typedef struct ap_pod_t ap_pod_t;
 
@@ -277,7 +279,50 @@ AP_DECLARE(apr_status_t) ap_mpm_pod_signal(ap_pod_t *pod);
  */
 AP_DECLARE(void) ap_mpm_pod_killpg(ap_pod_t *pod, int num);
 
-#endif /* !WIN32 || DOXYGEN */
+#define AP_MPM_PODX_RESTART_CHAR '$'
+#define AP_MPM_PODX_GRACEFUL_CHAR '!'
+
+typedef enum { AP_MPM_PODX_NORESTART, AP_MPM_PODX_RESTART, AP_MPM_PODX_GRACEFUL } ap_podx_restart_t;
+
+/**
+ * Open the extended pipe-of-death.
+ * @param p The pool to use for allocating the pipe
+ * @param pod The pipe-of-death that is created.
+ */
+AP_DECLARE(apr_status_t) ap_mpm_podx_open(apr_pool_t *p, ap_pod_t **pod);
+
+/**
+ * Check the extended pipe to determine if the process has been signalled to die.
+ */
+AP_DECLARE(int) ap_mpm_podx_check(ap_pod_t *pod);
+
+/**
+ * Close the pipe-of-death
+ *
+ * @param pod The pipe-of-death to close.
+ */
+AP_DECLARE(apr_status_t) ap_mpm_podx_close(ap_pod_t *pod);
+
+/**
+ * Write data to the extended pipe-of-death, signalling that one child process
+ * should die.
+ * @param pod the pipe-of-death to write to.
+ * @param graceful restart-type
+ */
+AP_DECLARE(apr_status_t) ap_mpm_podx_signal(ap_pod_t *pod,
+                                            ap_podx_restart_t graceful);
+
+/**
+ * Write data to the extended pipe-of-death, signalling that all child process
+ * should die.
+ * @param pod The pipe-of-death to write to.
+ * @param num The number of child processes to kill
+ * @param graceful restart-type
+ */
+AP_DECLARE(void) ap_mpm_podx_killpg(ap_pod_t *pod, int num,
+                                    ap_podx_restart_t graceful);
+
+#endif /* (!WIN32 && !NETWARE) || DOXYGEN */
 
 /**
  * Check that exactly one MPM is loaded
@@ -348,24 +393,132 @@ extern const char *ap_mpm_set_exception_hook(cmd_parms *cmd, void *dummy,
                                              const char *arg);
 #endif
 
+/**
+ * This hook allows modules to be called at intervals by some MPMs
+ * in the parent process.  IOW, this is not portable to all platforms
+ * or MPMs.
+ * @param p The pconf pool
+ * @param s The main server
+ * @return OK or DECLINED (errors are ignored)
+ * @ingroup hooks
+ */
 AP_DECLARE_HOOK(int,monitor,(apr_pool_t *p, server_rec *s))
 
 /* register modules that undertake to manage system security */
 AP_DECLARE(int) ap_sys_privileges_handlers(int inc);
 AP_DECLARE_HOOK(int, drop_privileges, (apr_pool_t * pchild, server_rec * s))
 
-/* implement the ap_mpm_query() function
+/**
+ * implement the ap_mpm_query() function
  * The MPM should return OK+APR_ENOTIMPL for any unimplemented query codes;
  * modules which intercede for specific query codes should DECLINE for others.
+ * @ingroup hooks
  */
 AP_DECLARE_HOOK(int, mpm_query, (int query_code, int *result, apr_status_t *rv))
 
-/* register the specified callback */
+/**
+ * register the specified callback
+ * @ingroup hooks
+ */
 AP_DECLARE_HOOK(apr_status_t, mpm_register_timed_callback,
                 (apr_time_t t, ap_mpm_callback_fn_t *cbfn, void *baton))
 
-/* get MPM name (e.g., "prefork" or "event") */
+/**
+ * register the specified callback
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(apr_status_t, mpm_register_poll_callback,
+                (apr_array_header_t *pds, ap_mpm_callback_fn_t *cbfn, void *baton))
+
+/* register the specified callback, with timeout 
+ * @ingroup hooks
+ *
+ */
+AP_DECLARE_HOOK(apr_status_t, mpm_register_poll_callback_timeout,
+        (apr_array_header_t *pds,
+                ap_mpm_callback_fn_t *cbfn,
+                ap_mpm_callback_fn_t *tofn,
+                void *baton,
+                apr_time_t timeout))
+
+/**
+ * Unregister the specified callback
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(apr_status_t, mpm_unregister_poll_callback,
+                (apr_array_header_t *pds))
+
+/** Resume the suspended connection 
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(apr_status_t, mpm_resume_suspended, (conn_rec*))
+
+/**
+ * Get MPM name (e.g., "prefork" or "event")
+ * @ingroup hooks
+ */
 AP_DECLARE_HOOK(const char *,mpm_get_name,(void))
+
+/**
+ * Hook called to determine whether we should stay within the write completion
+ * phase.
+ * @param c The current connection
+ * @return OK if write completion should continue, DECLINED if write completion
+ * should end gracefully, or a positive error if we should begin to linger.
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(int, output_pending, (conn_rec *c))
+
+/**
+ * Hook called to determine whether any data is pending in the input filters.
+ * @param c The current connection
+ * @return OK if we can read without blocking, DECLINED if a read would block.
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(int, input_pending, (conn_rec *c))
+
+/**
+ * Notification that connection handling is suspending (disassociating from the
+ * current thread)
+ * @param c The current connection
+ * @param r The current request, or NULL if there is no active request
+ * @ingroup hooks
+ * @see ap_hook_resume_connection
+ * @note This hook is not implemented by MPMs like Prefork and Worker which 
+ * handle all processing of a particular connection on the same thread.
+ * @note This hook will be called on the thread that was previously
+ * processing the connection.
+ * @note This hook is not called at the end of connection processing.  This
+ * hook only notifies a module when processing of an active connection is
+ * suspended.
+ * @note Resumption and subsequent suspension of a connection solely to perform
+ * I/O by the MPM, with no execution of non-MPM code, may not necessarily result
+ * in a call to this hook.
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(void, suspend_connection,
+                (conn_rec *c, request_rec *r))
+
+/**
+ * Notification that connection handling is resuming (associating with a thread)
+ * @param c The current connection
+ * @param r The current request, or NULL if there is no active request
+ * @ingroup hooks
+ * @see ap_hook_suspend_connection
+ * @note This hook is not implemented by MPMs like Prefork and Worker which 
+ * handle all processing of a particular connection on the same thread.
+ * @note This hook will be called on the thread that will resume processing
+ * the connection.
+ * @note This hook is not called at the beginning of connection processing.
+ * This hook only notifies a module when processing resumes for a
+ * previously-suspended connection.
+ * @note Resumption and subsequent suspension of a connection solely to perform
+ * I/O by the MPM, with no execution of non-MPM code, may not necessarily result
+ * in a call to this hook.
+ * @ingroup hooks
+ */
+AP_DECLARE_HOOK(void, resume_connection,
+                (conn_rec *c, request_rec *r))
 
 /* mutex type string for accept mutex, if any; MPMs should use the
  * same mutex type for ease of configuration

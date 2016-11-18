@@ -45,7 +45,7 @@ AP_DECLARE(apr_bucket *) ap_bucket_error_make(apr_bucket *b, int error,
 
     h = apr_bucket_alloc(sizeof(*h), b->list);
     h->status = error;
-    h->data = (buf) ? apr_pstrdup(p, buf) : NULL;
+    h->data = apr_pstrdup(p, buf);
 
     b = apr_bucket_shared_make(b, h, 0, 0);
     b->type = &ap_bucket_type_error;
@@ -61,6 +61,9 @@ AP_DECLARE(apr_bucket *) ap_bucket_error_create(int error, const char *buf,
     APR_BUCKET_INIT(b);
     b->free = apr_bucket_free;
     b->list = list;
+    if (!ap_is_HTTP_VALID_RESPONSE(error)) {
+        error = HTTP_INTERNAL_SERVER_ERROR;
+    }
     return ap_bucket_error_make(b, error, buf, p);
 }
 

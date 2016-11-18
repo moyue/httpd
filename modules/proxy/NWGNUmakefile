@@ -161,14 +161,16 @@ TARGET_nlm = \
 	$(OBJDIR)/proxyfcgi.nlm \
 	$(OBJDIR)/proxyscgi.nlm \
 	$(OBJDIR)/proxyexpress.nlm \
+	$(OBJDIR)/proxyhcheck.nlm \
 	$(OBJDIR)/proxylbm_busy.nlm \
 	$(OBJDIR)/proxylbm_hb.nlm \
 	$(OBJDIR)/proxylbm_req.nlm \
 	$(OBJDIR)/proxylbm_traf.nlm \
+	$(OBJDIR)/proxywstunnel.nlm \
 	$(EOLIST)
 
-# If WITH_MOD_SERF and SERFSRC have been defined then build the mod_serf module
-ifdef WITH_MOD_SERF
+# If WITH_SERF and SERFSRC have been defined then build the mod_serf module
+ifdef WITH_SERF
 ifneq "$(SERFSRC)" ""
 ifneq "$(ZLIBSDK)" ""
 TARGET_nlm += \

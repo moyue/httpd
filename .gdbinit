@@ -18,6 +18,25 @@ document dump_table
     Print the key/value pairs in a table.
 end
 
+define dump_skiplist
+    set $sl = (apr_skiplist *)$arg0
+    set $m = $sl->bottom
+    printf "skiplist@%p: size=%lu: height=%d\n", $sl, $sl->size, $sl->height
+    while ($m)
+        printf "(%p,%.12lx)", $m, $m->data
+        set $u = $m->up
+        while ($u)
+            printf " (%p,%.12lx)", $u, $u->data
+            set $u = $u->up
+        end
+        printf "\n"
+        set $m = $m->next
+    end
+end
+document dump_skiplist
+    Print the nodes/values in a skiplist
+end
+
 define dump_string_hash
     set $h = $arg0->array
     set $n = $arg0->max
@@ -349,21 +368,43 @@ define dump_allocator
     printf "Allocator free list:\n"
     set $i = 0
     set $max =(sizeof $arg0->free)/(sizeof $arg0->free[0])
+    set $kb = 0
     while $i < $max
         set $node = $arg0->free[$i]
         if $node != 0
             printf " #%2d: ", $i
             while $node != 0
-                printf "%d, ", $node->endp - $node->first_avail
+                printf "%d, ", 4096 << $node->index
+                set $kb = $kb + (4 << $node->index)
                 set $node = $node->next
             end
             printf "ends.\n"
         end
         set $i = $i + 1
     end
+    printf "Sum of free blocks: %dkiB\n", $kb
 end
 document dump_allocator
     Print status of an allocator and its freelists.
+end
+
+define dump_one_pool
+    set $p = $arg0
+    set $size = 0
+    set $free = 0
+    set $nodes = 0
+    set $node = $arg0->active
+    set $done = 0
+    while $done == 0
+        set $size = $size + (4096 << $node->index)
+        set $free = $free + ($node->endp - $node->first_avail)
+        set $nodes = $nodes + 1
+        set $node = $node->next
+        if $node == $arg0->active
+            set $done = 1
+        end
+    end
+    printf "Pool '%s' [%p]: %d/%d free (%d blocks)\n", $p->tag, $p, $free, $size, $nodes
 end
 
 # Set sane defaults for common signals:

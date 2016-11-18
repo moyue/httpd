@@ -38,8 +38,7 @@ Documentation</title>
     <page href="install.html">Compiling and Installing</page>
     <page href="invoking.html">Starting</page>
     <page href="stopping.html">Stopping or Restarting</page>
-    <page href="mod/directives.html">Run-time Configuration Directives</page>
-    <page href="mod/quickreference.html">Directive Quick-Reference</page>
+    <page href="mod/quickreference.html">Run-time Configuration Directives</page>
     <page href="mod/">Modules</page>
     <page href="mpm.html">Multi-Processing Modules (MPMs)</page>
     <page href="filter.html">Filters</page>
@@ -50,6 +49,7 @@ Documentation</title>
 </category>
 
 <category id="usersguide"><title>Users' Guide</title>
+    <page href="getting-started.html">Getting Started</page>
     <page href="bind.html">Binding to Addresses and Ports</page>
     <page href="configuring.html">Configuration Files</page>
     <page href="sections.html">Configuration Sections</page>
@@ -70,26 +70,27 @@ Documentation</title>
 </category>
 
 <category id="howto"><title>How-To / Tutorials</title>
+	<page href="howto">How to index page </page>
     <page href="howto/auth.html">Authentication and Authorization</page>
     <page href="howto/access.html">Access Control</page>
     <page href="howto/cgi.html">CGI: Dynamic Content</page>
     <page href="howto/htaccess.html">.htaccess files</page>
     <page href="howto/ssi.html">Server Side Includes (SSI)</page>
-    <page href="howto/public_html.html">Per-user Web Directories
-    (public_html)</page>
+    <page href="howto/public_html.html">Per-user Web Directories (public_html)</page>
+    <page href="howto/reverse_proxy.html">Reverse proxy setup guide</page>
 </category>
 
 <category id="platform"><title>Platform Specific Notes</title>
     <page href="platform/windows.html">Microsoft Windows</page>
     <page href="platform/rpm.html">RPM-based Systems (Redhat / CentOS / Fedora)</page>
     <page href="platform/netware.html">Novell NetWare</page>
-    <page href="platform/ebcdic.html">EBCDIC Port</page>
 </category>
 
 <category id="other"><title>Other Topics</title>
     <page href="http://wiki.apache.org/httpd/FAQ">Frequently Asked Questions</page>
     <page href="sitemap.html">Sitemap</page>
     <page href="developer/">Documentation for Developers</page>
+    <page href="http://httpd.apache.org/docs-project/">Helping with the documentation</page>
     <page href="misc/">Other Notes</page>
     <page href="http://wiki.apache.org/httpd/">Wiki</page>
 </category>

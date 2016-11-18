@@ -6,7 +6,6 @@ Summary: Apache HTTP Server
 Name: httpd
 Version: APACHE_VERSION
 Release: APACHE_RELEASE
-Epoch: APACHE_EPOCH00%{release}
 URL: http://httpd.apache.org/
 Vendor: Apache Software Foundation
 Source0: http://www.apache.org/dist/httpd/httpd-%{version}.tar.bz2
@@ -14,8 +13,8 @@ License: Apache License, Version 2.0
 Group: System Environment/Daemons
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 BuildRequires: autoconf, perl, pkgconfig, findutils
-BuildRequires: zlib-devel, libselinux-devel
-BuildRequires: apr-devel >= 1.4.0, apr-util-devel >= 1.4.0, pcre-devel >= 5.0
+BuildRequires: zlib-devel, libselinux-devel, libuuid-devel
+BuildRequires: apr-devel >= 1.5.0, apr-util-devel >= 1.5.0, pcre-devel >= 6.7
 Requires: initscripts >= 8.36, /etc/mime.types
 Obsoletes: httpd-suexec
 Requires(pre): /usr/sbin/useradd
@@ -34,7 +33,7 @@ Group: Development/Libraries
 Summary: Development tools for the Apache HTTP server.
 Obsoletes: secureweb-devel, apache-devel
 Requires: apr-devel, apr-util-devel, pkgconfig, libtool
-Requires: httpd = %{epoch}:%{version}-%{release}
+Requires: httpd = %{version}-%{release}
 
 %description devel
 The httpd-devel package contains the APXS binary and other files
@@ -48,9 +47,8 @@ to install this package.
 %package manual
 Group: Documentation
 Summary: Documentation for the Apache HTTP server.
-Requires: httpd = %{epoch}:%{version}-%{release}
+Requires: httpd = :%{version}-%{release}
 Obsoletes: secureweb-manual, apache-manual
-BuildArch: noarch
 
 %description manual
 The httpd-manual package contains the complete manual and
@@ -69,7 +67,7 @@ the Apache HTTP Server.
 Group: System Environment/Daemons
 Summary: LDAP modules for the Apache HTTP server
 BuildRequires: openldap-devel
-Requires: httpd = %{epoch}:%{version}-%{release}, httpd-mmn = %{mmn}
+Requires: httpd = %{version}-%{release}, httpd-mmn = %{mmn}, apr-util-ldap
 
 %description -n mod_authnz_ldap
 The mod_authnz_ldap module for the Apache HTTP server provides
@@ -80,7 +78,7 @@ mod_ldap provides an LDAP cache.
 Group: System Environment/Daemons
 Summary: Lua language module for the Apache HTTP server
 BuildRequires: lua-devel
-Requires: httpd = %{epoch}:%{version}-%{release}, httpd-mmn = %{mmn}
+Requires: httpd = %{version}-%{release}, httpd-mmn = %{mmn}
 
 %description -n mod_lua
 The mod_lua module for the Apache HTTP server allows the server to be
@@ -89,8 +87,9 @@ extended with scripts written in the Lua programming language.
 %package -n mod_proxy_html
 Group: System Environment/Daemons
 Summary: Proxy HTML filter modules for the Apache HTTP server
+Epoch: 1
 BuildRequires: libxml2-devel
-Requires: httpd = %{epoch}:%{version}-%{release}, httpd-mmn = %{mmn}
+Requires: httpd = 0:%{version}-%{release}, httpd-mmn = %{mmn}
 
 %description -n mod_proxy_html
 The mod_proxy_html module for the Apache HTTP server provides
@@ -102,7 +101,7 @@ enhanced charset/internationalisation support for mod_proxy_html.
 Group: System Environment/Daemons
 Summary: Distcache shared object cache module for the Apache HTTP server
 BuildRequires: distcache-devel
-Requires: httpd = %{epoch}:%{version}-%{release}, httpd-mmn = %{mmn}
+Requires: httpd = %{version}-%{release}, httpd-mmn = %{mmn}
 
 %description -n mod_socache_dc
 The mod_socache_dc module for the Apache HTTP server allows the shared
@@ -111,10 +110,11 @@ object cache to use the distcache shared caching mechanism.
 %package -n mod_ssl
 Group: System Environment/Daemons
 Summary: SSL/TLS module for the Apache HTTP server
+Epoch: 1
 BuildRequires: openssl-devel
 Requires(post): openssl, /bin/cat
 Requires(pre): httpd
-Requires: httpd = %{epoch}:%{version}-%{release}, httpd-mmn = %{mmn}
+Requires: httpd = 0:%{version}-%{release}, httpd-mmn = %{mmn}
 
 %description -n mod_ssl
 The mod_ssl module provides strong cryptography for the Apache Web
@@ -158,7 +158,7 @@ rm -rf srclib/{apr,apr-util,pcre}
         --enable-mods-shared=all \
         --enable-ssl --with-ssl --enable-socache-dc --enable-bucketeer \
         --enable-case-filter --enable-case-filter-in \
-        --enable-policy \
+        --enable-policy --enable-crypto \
         --disable-imagemap
 
 make %{?_smp_mflags}
@@ -313,6 +313,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/httpd/modules/mod_access_compat.so
 %{_libdir}/httpd/modules/mod_actions.so
 %{_libdir}/httpd/modules/mod_alias.so
+%{_libdir}/httpd/modules/mod_allowhandlers.so
 %{_libdir}/httpd/modules/mod_allowmethods.so
 %{_libdir}/httpd/modules/mod_apreq.so
 %{_libdir}/httpd/modules/mod_asis.so
@@ -336,11 +337,13 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/httpd/modules/mod_bucketeer.so
 %{_libdir}/httpd/modules/mod_buffer.so
 %{_libdir}/httpd/modules/mod_cache_disk.so
+%{_libdir}/httpd/modules/mod_cache_socache.so
 %{_libdir}/httpd/modules/mod_cache.so
 %{_libdir}/httpd/modules/mod_case_filter.so
 %{_libdir}/httpd/modules/mod_case_filter_in.so
 %{_libdir}/httpd/modules/mod_cgid.so
 %{_libdir}/httpd/modules/mod_charset_lite.so
+%{_libdir}/httpd/modules/mod_crypto.so
 %{_libdir}/httpd/modules/mod_data.so
 %{_libdir}/httpd/modules/mod_dav_fs.so
 %{_libdir}/httpd/modules/mod_dav_lock.so
@@ -370,6 +373,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/httpd/modules/mod_log_debug.so
 %{_libdir}/httpd/modules/mod_log_forensic.so
 %{_libdir}/httpd/modules/mod_logio.so
+%{_libdir}/httpd/modules/mod_macro.so
 %{_libdir}/httpd/modules/mod_mime_magic.so
 %{_libdir}/httpd/modules/mod_mime.so
 %{_libdir}/httpd/modules/mod_mpm_event.so
@@ -387,6 +391,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/httpd/modules/mod_proxy_ftp.so
 %{_libdir}/httpd/modules/mod_proxy_http.so
 %{_libdir}/httpd/modules/mod_proxy_scgi.so
+%{_libdir}/httpd/modules/mod_proxy_wstunnel.so
 %{_libdir}/httpd/modules/mod_proxy.so
 %{_libdir}/httpd/modules/mod_ratelimit.so
 %{_libdir}/httpd/modules/mod_reflector.so
@@ -439,6 +444,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man8/apachectl.8*
 %{_mandir}/man8/httpd.8*
 %{_mandir}/man8/htcacheclean.8*
+%{_mandir}/man8/fcgistarter.8*
 
 %files manual
 %defattr(-,root,root)

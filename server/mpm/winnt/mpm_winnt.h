@@ -27,6 +27,7 @@
 
 #include "apr_proc_mutex.h"
 #include "ap_listen.h"
+#include "scoreboard.h"
 
 /* From service.c: */
 
@@ -71,6 +72,7 @@ extern module AP_MODULE_DECLARE_DATA mpm_winnt_module;
 extern int ap_threads_per_child;
 
 extern DWORD my_pid;
+extern volatile ap_generation_t my_generation;
 extern apr_proc_mutex_t *start_mutex;
 extern HANDLE exit_event;
 
@@ -79,8 +81,6 @@ extern OSVERSIONINFO osver;
 extern DWORD stack_res_flag;
 
 extern void clean_child_exit(int);
-
-void setup_signal_names(char *prefix);
 
 typedef enum {
     SIGNAL_PARENT_SHUTDOWN,
@@ -92,10 +92,7 @@ AP_DECLARE(void) ap_signal_parent(ap_signal_parent_e type);
 void hold_console_open_on_error(void);
 
 /* From child.c: */
-void child_main(apr_pool_t *pconf);
-apr_status_t winnt_insert_network_bucket(conn_rec *c,
-                                         apr_bucket_brigade *bb,
-                                         apr_socket_t *socket);
+void child_main(apr_pool_t *pconf, DWORD parent_pid);
 
 #endif /* APACHE_MPM_WINNT_H */
 /** @} */

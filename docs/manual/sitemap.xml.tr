@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE sitemap SYSTEM "./style/sitemap.dtd">
 <?xml-stylesheet type="text/xsl" href="./style/manual.tr.xsl"?>
-<!-- English Revision: 1075625 -->
+<!-- English Revision: 1075625:1732099 (outdated) -->
 <!-- =====================================================
  Translated by: Nilgün Belma Bugüner <nilgun belgeler.org>
    Reviewed by: Orhan Berent <berent belgeler.org>
@@ -120,7 +120,6 @@ Windows ile Apache Kullanımı</page>
 <page href="platform/win_compiling.html">Microsoft Windows için Apache Derleme</page>
 <page href="platform/netware.html">Novell NetWare ile Apache Kullanımı</page>
 <page href="platform/perf-hp.html">HPUX üzerinde Yüksek Başarımlı HTTP Sunucusu Çalıştırma</page>
-<page href="platform/ebcdic.html">Apache EBCDIC Portu</page>
 </category>
 
 <category id="programs">

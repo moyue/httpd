@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision : 1307726 -->
+<!-- English Revision: 1673945 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -81,7 +81,9 @@ client envoie une requ&ecirc;te pour un r&eacute;pertoire</description>
     listing du r&eacute;pertoire.</p>
 
     <example><title>Exemple</title>
+    <highlight language="config">
       DirectoryIndex index.html
+      </highlight>
     </example>
 
     <p>Avec cette configuration, une requ&ecirc;te pour l'URL
@@ -93,9 +95,9 @@ client envoie une requ&ecirc;te pour un r&eacute;pertoire</description>
     <p>Notez qu'il n'est pas n&eacute;cessaire que les documents soient
     relatifs au r&eacute;pertoire ;</p>
 
-    <example>
+    <highlight language="config">
       DirectoryIndex index.html index.txt  /cgi-bin/index.pl
-    </example>
+    </highlight>
 
     <p>provoquerait l'ex&eacute;cution du script CGI
     <code>/cgi-bin/index.pl</code> si aucun des fichiers
@@ -107,6 +109,33 @@ client envoie une requ&ecirc;te pour un r&eacute;pertoire</description>
     "disabled" sera interpr&eacute;t&eacute; de mani&egrave;re litt&eacute;rale si d'autres
     arguments sont pr&eacute;sents avant ou apr&egrave;s lui, m&ecirc;me s'ils sont
     eux-m&ecirc;mes des arguments "disabled".</p>
+
+    <p><strong>Note :</strong>La d&eacute;finition de plusieurs directives
+    <directive>DirectoryIndex</directive> au sein d'un <a href="../sections.html"><em>m&ecirc;me
+    contexte</em></a> permet d'ajouter des ressources &agrave; rechercher plut&ocirc;t
+    que de remplacer celle d&eacute;j&agrave; d&eacute;finies :
+    </p>
+    <highlight language="config">
+# Exemple A: d&eacute;finit index.html comme page d'index, ainsi qu'index.php.
+&lt;Directory "/foo"&gt;
+    DirectoryIndex index.html
+    DirectoryIndex index.php
+&lt;/Directory&gt;
+
+# Exemple B: identique &agrave; l'exemple A, mais avec une seule directive.
+&lt;Directory "/foo"&gt;
+    DirectoryIndex index.html index.php
+&lt;/Directory&gt;
+
+# Exemple C: pour remplacer la liste des pages d'index par une autre,
+# vous devez tout d'abord supprimer la premi&egrave;re liste : dans l'exemple
+# suivant, il ne restera qu'index.php comme page d'index.
+&lt;Directory "/foo"&gt;
+    DirectoryIndex index.html
+    DirectoryIndex disabled
+    DirectoryIndex index.php
+&lt;/Directory&gt;
+    </highlight>
 
 </usage>
 </directivesynopsis>
@@ -130,10 +159,24 @@ r&eacute;pertoires.
     <directive>DirectoryIndex</directive> qui est s&eacute;lectionn&eacute;e et
     renvoy&eacute;e de mani&egrave;re transparente au client. La directive
     <directive>DirectoryIndexRedirect</directive> permet de rediriger le
-    client vers une ressource externe.</p>
+    client via une redirection de type 3xx.</p>
+
+    <p>Les arguments accept&eacute;s sont :</p>
+    <ul>
+     <li><code>on</code> : envoie une redirection 302 vers l'index choisi.</li>
+     <li><code>off</code> : n'envoie aucune redirection. Il s'agit du comportement historique de mod_dir.</li>
+     <li><code>permanent</code> : envoie une redirection 301 (permanent) vers l'index choisi.</li>
+     <li><code>temp</code> : ceci est &eacute;quivalent &agrave; <code>on</code></li>
+     <li><code>seeother</code> : envoie une redirection 303 (&eacute;galement appel&eacute;e "See Other") vers l'index choisi.</li>
+     <li><var>3xx-code</var> : envoie une redirection accompagn&eacute;e du code 3xx choisi.</li>
+    </ul>
+
+
 
     <example><title>Exemple</title>
+    <highlight language="config">
       DirectoryIndexRedirect on
+      </highlight>
     </example>
 
     <p>Une requ&ecirc;te pour <code>http://example.com/docs/</code> se
@@ -154,8 +197,6 @@ fin"</description>
 host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>Indexes</override>
-<compatibility>Disponible depuis le version 2.0.51
-d'Apache</compatibility>
 
 <usage>
     <p>La directive <directive>DirectorySlash</directive> permet de
@@ -187,15 +228,13 @@ d'Apache</compatibility>
     Gardez cependant &agrave; l'esprit que ceci peut avoir des r&eacute;percutions en
     mati&egrave;re de s&eacute;curit&eacute;.</p>
 
-    <example>
-        # voir l'avertissement de s&eacute;curit&eacute; ci-dessous !<br />
-        &lt;Location /un/chemin&gt;<br />
-        <indent>
-            DirectorySlash Off<br />
-            SetHandler un-gestionnaire<br />
-        </indent>
-        &lt;/Location&gt;
-    </example>
+    <highlight language="config">
+# voir l'avertissement de s&eacute;curit&eacute; ci-dessous !
+&lt;Location "/some/path"&gt;
+    DirectorySlash Off
+    SetHandler some-handler
+&lt;/Location&gt;
+    </highlight>
 
     <note type="warning"><title>Avertissement de s&eacute;curit&eacute;</title>
     <p>La d&eacute;sactivation de la redirection "slash de fin" peut entra&icirc;ner
@@ -219,20 +258,22 @@ d'Apache</compatibility>
 <name>FallbackResource</name>
 <description>D&eacute;finit une URL par d&eacute;faut pour les requ&ecirc;tes qui ne ciblent
 aucun fichier</description>
-<syntax>FallbackResource <var>url-locale</var></syntax>
-<default>Aucune - httpd renvoie un code d'erreur 404 (Not Found)</default>
+<syntax>FallbackResource disabled | <var>url-locale</var></syntax>
+<default>D&eacute;sactiv&eacute; - httpd renvoie un code d'erreur 404 (Not Found)</default>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>Indexes</override>
+<compatibility>L'argument <code>disabled</code> est disponible depuis la
+version 2.4.4 du serveur HTTP Apache</compatibility>
 <usage>
     <p>Cette directive permet de d&eacute;finir un traitement pour toute URL
     qui ne correspond &agrave; aucune ressource de votre syst&egrave;me de fichiers,
     et qui provoquerait sans cela l'envoi d'un code d'erreur HTTP 404
     (Not Found).
     Par exemple</p>
-    <example>
-        <code>FallbackResource /not-404.php</code>
-    </example>
+    <highlight language="config">
+        FallbackResource /not-404.php
+    </highlight>
     <p>fait en sorte que les requ&ecirc;tes ne correspondant &agrave; aucun fichier
     soient trait&eacute;es par <code>non-404.php</code>, sans affecter les
     requ&ecirc;tes pour des fichiers existants.</p>
@@ -246,25 +287,56 @@ aucun fichier</description>
     conditionnels <code>-f</code> et <code>-d</code> pour v&eacute;rifier
     l'existence des fichiers et r&eacute;pertoires. Maintenant, une seule ligne
     de configuration est n&eacute;cessaire.</p>
-    <example>
-        <code>FallbackResource /index.php</code>
-    </example>
+    <highlight language="config">
+        FallbackResource /index.php
+    </highlight>
     <p>Les fichiers existants comme des images, des fichiers css, etc...
     seront trait&eacute;s normalement.</p>
+    <p>Utilisez l'argument <code>disabled</code> pour d&eacute;sactiver cette
+    fonctionnalit&eacute; si l'h&eacute;ritage d'un r&eacute;pertoire parent n'est pas
+    souhait&eacute;.</p>
     <p>Pour un URI interm&eacute;diaire tel que
     <em>http://example.com/blog/</em>, cet URI interm&eacute;diaire doit &ecirc;tre
     sp&eacute;cifi&eacute; en tant que <var>url-locale</var> :</p>
-    <example>
-         <code>
-             &lt;Directory /web/example.com/htdocs/blog&gt;<br />
-	     <indent>
-		   FallbackResource /blog/index.php<br />
-             </indent>
-             &lt;/Directory&gt;
-         </code>
-    </example>
+    <highlight language="config">
+&lt;Directory "/web/example.com/htdocs/blog"&gt;
+    FallbackResource /blog/index.php
+&lt;/Directory&gt;
+&lt;Directory "/web/example.com/htdocs/blog/images"&gt;
+    FallbackResource disabled
+&lt;/Directory&gt;
+    </highlight>
 </usage>
 </directivesynopsis>
 
+<directivesynopsis>
+<name>DirectoryCheckHandler</name>
+<description>D&eacute;finit la r&eacute;ponse de ce module lorsqu'un autre
+gestionnaire est utilis&eacute;</description>
+<syntax>DirectoryCheckHandler On|Off</syntax>
+<default>DirectoryCheckHandler Off</default>
+<contextlist><context>server config</context><context>virtual host</context>
+<context>directory</context><context>.htaccess</context></contextlist>
+<override>Indexes</override>
+<compatibility>Disponible depuis la version 2.4.8 du serveur HTTP
+Apache. Les versions ant&eacute;rieures &agrave; 2.4 se comportaient implicitement
+comme si "DirectoryCheckHandler ON" avait &eacute;t&eacute; sp&eacute;cifi&eacute;.</compatibility>
+<usage>
+    <p>La directive <directive>DirectoryCheckHandler</directive> permet
+    de faire en sorte que <module>mod_dir</module> recherche un index
+    de r&eacute;pertoire ou ajoute des slashes de fin lorsqu'un autre
+    gestionnaire &agrave; &eacute;t&eacute; d&eacute;fini pour l'URL consid&eacute;r&eacute;e. Les gestionnaires
+    peuvent &ecirc;tre d&eacute;finis &agrave; l'ex&eacute;cution via des directives telles que
+    <directive module="core">SetHandler</directive> ou par d'autres
+    modules.</p>
+
+    <p>Dans les versions ant&eacute;rieures &agrave; 2.4, ce module ne modifiait pas
+    son comportement si un autre gestionnaire avait &eacute;t&eacute; d&eacute;fini pour
+    l'URL consid&eacute;r&eacute;e. Ceci permettait de servir des index de r&eacute;pertoires
+    m&ecirc;me si une directive <directive>SetHandler</directive> avait &eacute;t&eacute;
+    d&eacute;finie pour un r&eacute;pertoire entier, mais pouvait aussi &ecirc;tre &agrave;
+    l'origine de conflits avec d'autres modules.</p> 
+</usage>
+</directivesynopsis>
 
 </modulesynopsis>

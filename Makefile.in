@@ -4,7 +4,7 @@ CLEAN_SUBDIRS = test
 
 PROGRAM_NAME         = $(progname)
 PROGRAM_SOURCES      = modules.c
-PROGRAM_LDADD        = buildmark.o $(HTTPD_LDFLAGS) $(PROGRAM_DEPENDENCIES) $(PCRE_LIBS) $(EXTRA_LIBS) $(AP_LIBS) $(LIBS)
+PROGRAM_LDADD        = buildmark.o $(HTTPD_LDFLAGS) $(PROGRAM_DEPENDENCIES) $(HTTPD_LIBS) $(EXTRA_LIBS) $(AP_LIBS) $(LIBS)
 PROGRAM_PRELINK      = $(COMPILE) -c $(top_srcdir)/server/buildmark.c
 PROGRAM_DEPENDENCIES = \
   server/libmain.la \
@@ -22,7 +22,7 @@ DISTCLEAN_TARGETS  = include/ap_config_auto.h include/ap_config_layout.h \
 	include/apache_probes.h \
 	modules.c config.cache config.log config.status build/config_vars.mk \
 	build/rules.mk docs/conf/httpd.conf docs/conf/extra/*.conf shlibtool \
-	build/pkg/pkginfo build/config_vars.sh
+	build/pkg/pkginfo build/config_vars.sh bsd_converted
 EXTRACLEAN_TARGETS = configure include/ap_config_auto.h.in generated_lists \
 	httpd.spec
 
@@ -45,7 +45,7 @@ install-conf:
 	    	if [ -f $$i ] ; then \
 	    	( \
 	    		n_lm=`awk 'BEGIN {n=0} /@@LoadModule@@/ {n+=1} END {print n}' < $$i`; \
-	    		if test $$n_lm -eq 0 -o "x$(DSO_MODULES)" = "x"; then \
+	    		if test $$n_lm -eq 0 -o "x$(MPM_MODULE)$(DSO_MODULES)" = "x"; then \
 	    			sed -e 's#@@ServerRoot@@#$(prefix)#g' \
 	    				-e 's#@@Port@@#$(PORT)#g' \
 	    				-e 's#@@SSLPort@@#$(SSLPORT)#g' \
@@ -58,18 +58,48 @@ install-conf:
 	    				-e 's#@@SSLPort@@#$(SSLPORT)#g' \
 	    				-e 'p' \
 	    				< $$i; \
+	    			if echo " $(DSO_MODULES) "|$(EGREP) " cgi " > /dev/null ; then \
+	    				have_cgi="1"; \
+	    			else \
+	    				have_cgi="0"; \
+	    			fi; \
+	    			if echo " $(DSO_MODULES) "|$(EGREP) " cgid " > /dev/null ; then \
+	    				have_cgid="1"; \
+	    			else \
+	    				have_cgid="0"; \
+	    			fi; \
+	    			for j in $(MPM_MODULES) "^EOL^"; do \
+	    				if test $$j != "^EOL^"; then \
+	    					if echo ",$(ENABLED_MPM_MODULE),"|$(EGREP) ",$$j," > /dev/null ; then \
+	    						loading_disabled=""; \
+	    					else \
+	    						loading_disabled="#"; \
+	    					fi; \
+						echo "$${loading_disabled}LoadModule $${j}_module $(rel_libexecdir)/mod_$${j}.so"; \
+					fi; \
+	    			done; \
 	    			for j in $(DSO_MODULES) "^EOL^"; do \
 	    				if test $$j != "^EOL^"; then \
 	    					if echo ",$(ENABLED_DSO_MODULES),"|$(EGREP) ",$$j," > /dev/null ; then \
 	    						loading_disabled=""; \
 	    					else \
 	    						loading_disabled="#"; \
+		    					if test "$(LOAD_ALL_MODULES)" = "yes"; then \
+		    						loading_disabled=""; \
+	    						fi; \
 	    					fi; \
-	    					if test "$(LOAD_ALL_MODULES)" = "yes"; then \
-	    						loading_disabled=""; \
-	    					fi; \
-    						echo "$${loading_disabled}LoadModule $${j}_module $(rel_libexecdir)/mod_$${j}.so"; \
-	    				fi; \
+						if test $$j = "cgid" -a "$$have_cgi" = "1"; then \
+							echo "<IfModule !mpm_prefork_module>"; \
+							echo "	$${loading_disabled}LoadModule $${j}_module $(rel_libexecdir)/mod_$${j}.so"; \
+							echo "</IfModule>"; \
+						elif test $$j = "cgi" -a "$$have_cgid" = "1"; then \
+							echo "<IfModule mpm_prefork_module>"; \
+							echo "	$${loading_disabled}LoadModule $${j}_module $(rel_libexecdir)/mod_$${j}.so"; \
+							echo "</IfModule>"; \
+						else \
+							echo "$${loading_disabled}LoadModule $${j}_module $(rel_libexecdir)/mod_$${j}.so"; \
+						fi; \
+					fi; \
 	    			done; \
 	    			sed -e '1,/@@LoadModule@@/d' \
 	    				-e '/@@LoadModule@@/d' \
@@ -200,9 +230,12 @@ INSTALL_HEADERS = \
 	$(srcdir)/modules/core/mod_so.h \
 	$(srcdir)/modules/core/mod_watchdog.h \
 	$(srcdir)/modules/cache/mod_cache.h \
+	$(srcdir)/modules/cache/cache_common.h \
 	$(srcdir)/modules/database/mod_dbd.h \
 	$(srcdir)/modules/dav/main/mod_dav.h \
+	$(srcdir)/modules/http2/mod_http2.h \
 	$(srcdir)/modules/filters/mod_include.h \
+	$(srcdir)/modules/filters/mod_xml2enc.h \
 	$(srcdir)/modules/generators/mod_cgi.h \
 	$(srcdir)/modules/generators/mod_status.h \
 	$(srcdir)/modules/loggers/mod_log_config.h \
@@ -211,6 +244,7 @@ INSTALL_HEADERS = \
 	$(srcdir)/modules/proxy/mod_serf.h \
         $(srcdir)/modules/session/mod_session.h \
 	$(srcdir)/modules/ssl/mod_ssl.h \
+	$(srcdir)/modules/ssl/mod_ssl_openssl.h \
 	$(srcdir)/os/$(OS_DIR)/*.h
 
 install-include:
@@ -233,11 +267,22 @@ install-man:
 	  cd $(DESTDIR)$(manualdir) && find . -name ".svn" -type d -print | xargs rm -rf 2>/dev/null || true; \
 	fi
 
-install-suexec:
+install-suexec: install-suexec-binary install-suexec-$(INSTALL_SUEXEC)
+
+install-suexec-binary:
 	@if test -f $(builddir)/support/suexec; then \
             test -d $(DESTDIR)$(sbindir) || $(MKINSTALLDIRS) $(DESTDIR)$(sbindir); \
             $(INSTALL_PROGRAM) $(top_builddir)/support/suexec $(DESTDIR)$(sbindir); \
-            chmod 4755 $(DESTDIR)$(sbindir)/suexec; \
+	fi
+
+install-suexec-setuid:
+	@if test -f $(builddir)/support/suexec; then \
+	    chmod 4755 $(DESTDIR)$(sbindir)/suexec; \
+	fi
+
+install-suexec-caps:
+	@if test -f $(builddir)/support/suexec; then \
+            setcap 'cap_setuid,cap_setgid+pe' $(DESTDIR)$(sbindir)/suexec; \
 	fi
 
 suexec:

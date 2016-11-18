@@ -69,13 +69,16 @@ Server.</p>
     There must be no other characters or white space between the
     backslash and the end of the line.</p>
 
+    <p>Arguments to directives are separated by whitespace. If an
+    argument contains spaces, you must enclose that argument in quotes.</p>
+
     <p>Directives in the configuration files are case-insensitive,
     but arguments to directives are often case sensitive. Lines
     that begin with the hash character "#" are considered
     comments, and are ignored. Comments may <strong>not</strong> be
-    included on a line after a configuration directive. Blank lines
-    and white space occurring before a directive are ignored, so
-    you may indent directives for clarity.</p>
+    included on the same line as a configuration directive.
+    White space occurring before a directive is ignored, so
+    you may indent directives for clarity. Blank lines are also ignored.</p>
 
     <p>The values of variables defined with the <directive
     module="core">Define</directive> of or shell environment variables can
@@ -98,7 +101,7 @@ Server.</p>
 
     <p>The maximum length of a line in normal configuration files, after
     variable substitution and joining any continued lines, is approximately
-    16 MiB. In <a href="configuring.xml#htaccess">.htaccess files</a>, the
+    16 MiB. In <a href="configuring.html#htaccess">.htaccess files</a>, the
     maximum length is 8190 characters.</p>
 
     <p>You can check your configuration files for syntax errors
@@ -111,7 +114,8 @@ Server.</p>
     variables resolved and all comments and non-matching
     <directive module="core" type="section">IfDefine</directive> and
     <directive module="core" type="section">IfModule</directive> sections
-    removed.</p>
+    removed. However, the output does not reflect the merging or overriding
+    that may happen for repeated directives.</p>
   </section>
 
   <section id="modules">

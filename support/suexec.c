@@ -58,6 +58,10 @@
 #include <grp.h>
 #endif
 
+#ifdef AP_LOG_SYSLOG
+#include <syslog.h>
+#endif
+
 #if defined(PATH_MAX)
 #define AP_MAXPATH PATH_MAX
 #elif defined(MAXPATHLEN)
@@ -69,13 +73,26 @@
 #define AP_ENVBUF 256
 
 extern char **environ;
+
+#ifdef AP_LOG_SYSLOG
+/* Syslog support. */
+#if !defined(AP_LOG_FACILITY) && defined(LOG_AUTHPRIV)
+#define AP_LOG_FACILITY LOG_AUTHPRIV
+#elif !defined(AP_LOG_FACILITY)
+#define AP_LOG_FACILITY LOG_AUTH
+#endif
+
+static int log_open;
+#else
+/* Non-syslog support. */
 static FILE *log = NULL;
+#endif
 
 static const char *const safe_env_lst[] =
 {
     /* variable name starts with */
-    "HTTP_",
     "SSL_",
+    /* "HTTP_" is handled specially in clean_env() */
 
     /* variable name is */
     "AUTH_TYPE=",
@@ -85,6 +102,7 @@ static const char *const safe_env_lst[] =
     "CONTEXT_PREFIX=",
     "DATE_GMT=",
     "DATE_LOCAL=",
+    "DOCUMENT_ARGS=",
     "DOCUMENT_NAME=",
     "DOCUMENT_PATH_INFO=",
     "DOCUMENT_ROOT=",
@@ -128,10 +146,23 @@ static const char *const safe_env_lst[] =
     NULL
 };
 
+static void log_err(const char *fmt,...) 
+    __attribute__((format(printf,1,2)));
+static void log_no_err(const char *fmt,...)  
+    __attribute__((format(printf,1,2)));
+static void err_output(int is_error, const char *fmt, va_list ap) 
+    __attribute__((format(printf,2,0)));
 
 static void err_output(int is_error, const char *fmt, va_list ap)
 {
-#ifdef AP_LOG_EXEC
+#if defined(AP_LOG_SYSLOG)
+    if (!log_open) {
+        openlog("suexec", LOG_PID, AP_LOG_FACILITY);
+        log_open = 1;
+    }
+
+    vsyslog(is_error ? LOG_ERR : LOG_INFO, fmt, ap);
+#elif defined(AP_LOG_EXEC)
     time_t timevar;
     struct tm *lt;
 
@@ -211,14 +242,32 @@ static void clean_env(void)
 
     if ((cleanenv = (char **) calloc(AP_ENVBUF, sizeof(char *))) == NULL) {
         log_err("failed to malloc memory for environment\n");
-        exit(120);
+        exit(123);
     }
 
     sprintf(pathbuf, "PATH=%s", AP_SAFE_PATH);
     cleanenv[cidx] = strdup(pathbuf);
+    if (cleanenv[cidx] == NULL) {
+        log_err("failed to malloc memory for environment\n");
+        exit(124);
+    }
     cidx++;
 
     for (ep = envp; *ep && cidx < AP_ENVBUF-1; ep++) {
+        if (strncmp(*ep, "HTTP_", 5) == 0) {
+            if (strncmp(*ep + 5, "PROXY=", 6) == 0) {
+                /*
+                 * HTTP_PROXY is treated as alias for http_proxy by some
+                 * programs.
+                 */
+            }
+            else {
+                /* Other HTTP_* are safe */
+                cleanenv[cidx] = *ep;
+                cidx++;
+            }
+            continue;
+        }
         for (idx = 0; safe_env_lst[idx]; idx++) {
             if (!strncmp(*ep, safe_env_lst[idx],
                          strlen(safe_env_lst[idx]))) {
@@ -263,7 +312,7 @@ int main(int argc, char *argv[])
      */
     uid = getuid();
     if ((pw = getpwuid(uid)) == NULL) {
-        log_err("crit: invalid uid: (%ld)\n", uid);
+        log_err("crit: invalid uid: (%lu)\n", (unsigned long)uid);
         exit(102);
     }
     /*
@@ -289,7 +338,9 @@ int main(int argc, char *argv[])
 #ifdef AP_HTTPD_USER
         fprintf(stderr, " -D AP_HTTPD_USER=\"%s\"\n", AP_HTTPD_USER);
 #endif
-#ifdef AP_LOG_EXEC
+#if defined(AP_LOG_SYSLOG)
+        fprintf(stderr, " -D AP_LOG_SYSLOG\n");
+#elif defined(AP_LOG_EXEC)
         fprintf(stderr, " -D AP_LOG_EXEC=\"%s\"\n", AP_LOG_EXEC);
 #endif
 #ifdef AP_SAFE_PATH
@@ -390,7 +441,10 @@ int main(int argc, char *argv[])
         }
     }
     gid = gr->gr_gid;
-    actual_gname = strdup(gr->gr_name);
+    if ((actual_gname = strdup(gr->gr_name)) == NULL) {
+        log_err("failed to alloc memory\n");
+        exit(125);
+    }
 
 #ifdef _OSD_POSIX
     /*
@@ -425,6 +479,10 @@ int main(int argc, char *argv[])
     uid = pw->pw_uid;
     actual_uname = strdup(pw->pw_name);
     target_homedir = strdup(pw->pw_dir);
+    if (actual_uname == NULL || target_homedir == NULL) {
+        log_err("failed to alloc memory\n");
+        exit(126);
+    }
 
     /*
      * Log the transaction here to be sure we have an open log
@@ -440,7 +498,7 @@ int main(int argc, char *argv[])
      * a UID less than AP_UID_MIN.  Tsk tsk.
      */
     if ((uid == 0) || (uid < AP_UID_MIN)) {
-        log_err("cannot run as forbidden uid (%d/%s)\n", uid, cmd);
+        log_err("cannot run as forbidden uid (%lu/%s)\n", (unsigned long)uid, cmd);
         exit(107);
     }
 
@@ -449,7 +507,7 @@ int main(int argc, char *argv[])
      * or as a GID less than AP_GID_MIN.  Tsk tsk.
      */
     if ((gid == 0) || (gid < AP_GID_MIN)) {
-        log_err("cannot run as forbidden gid (%d/%s)\n", gid, cmd);
+        log_err("cannot run as forbidden gid (%lu/%s)\n", (unsigned long)gid, cmd);
         exit(108);
     }
 
@@ -460,7 +518,7 @@ int main(int argc, char *argv[])
      * and setgid() to the target group. If unsuccessful, error out.
      */
     if (((setgid(gid)) != 0) || (initgroups(actual_uname, gid) != 0)) {
-        log_err("failed to setgid (%ld: %s)\n", gid, cmd);
+        log_err("failed to setgid (%lu: %s)\n", (unsigned long)gid, cmd);
         exit(109);
     }
 
@@ -468,7 +526,7 @@ int main(int argc, char *argv[])
      * setuid() to the target user.  Error out on fail.
      */
     if ((setuid(uid)) != 0) {
-        log_err("failed to setuid (%ld: %s)\n", uid, cmd);
+        log_err("failed to setuid (%lu: %s)\n", (unsigned long)uid, cmd);
         exit(110);
     }
 
@@ -556,11 +614,11 @@ int main(int argc, char *argv[])
         (gid != dir_info.st_gid) ||
         (uid != prg_info.st_uid) ||
         (gid != prg_info.st_gid)) {
-        log_err("target uid/gid (%ld/%ld) mismatch "
-                "with directory (%ld/%ld) or program (%ld/%ld)\n",
-                uid, gid,
-                dir_info.st_uid, dir_info.st_gid,
-                prg_info.st_uid, prg_info.st_gid);
+        log_err("target uid/gid (%lu/%lu) mismatch "
+                "with directory (%lu/%lu) or program (%lu/%lu)\n",
+                (unsigned long)uid, (unsigned long)gid,
+                (unsigned long)dir_info.st_uid, (unsigned long)dir_info.st_gid,
+                (unsigned long)prg_info.st_uid, (unsigned long)prg_info.st_gid);
         exit(120);
     }
     /*
@@ -585,6 +643,12 @@ int main(int argc, char *argv[])
 #endif /* AP_SUEXEC_UMASK */
 
     /* Be sure to close the log file so the CGI can't mess with it. */
+#ifdef AP_LOG_SYSLOG
+    if (log_open) {
+        closelog();
+        log_open = 0;
+    }
+#else
     if (log != NULL) {
 #if APR_HAVE_FCNTL_H
         /*
@@ -606,6 +670,7 @@ int main(int argc, char *argv[])
         log = NULL;
 #endif
     }
+#endif
 
     /*
      * Execute the command, replacing our image with its own.

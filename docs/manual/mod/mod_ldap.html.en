@@ -1,20 +1,25 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><!--
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="Content-Type" />
+<!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>mod_ldap - Apache HTTP Server</title>
+<title>mod_ldap - Apache HTTP Server Version 2.5</title>
 <link href="../style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="../style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
-<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" />
+<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="../style/css/prettify.css" />
+<script src="../style/scripts/prettify.min.js" type="text/javascript">
+</script>
+
 <link href="../images/favicon.ico" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
-<img alt="" src="../images/feather.gif" /></div>
+<img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Modules</a></div>
@@ -28,8 +33,7 @@
 by other LDAP modules</td></tr>
 <tr><th><a href="module-dict.html#Status">Status:</a></th><td>Extension</td></tr>
 <tr><th><a href="module-dict.html#ModuleIdentifier">Module Identifier:</a></th><td>ldap_module</td></tr>
-<tr><th><a href="module-dict.html#SourceFile">Source File:</a></th><td>util_ldap.c</td></tr>
-<tr><th><a href="module-dict.html#Compatibility">Compatibility:</a></th><td>Available in version 2.0.41 and later</td></tr></table>
+<tr><th><a href="module-dict.html#SourceFile">Source File:</a></th><td>util_ldap.c</td></tr></table>
 <h3>Summary</h3>
 
     <p>This module was created to improve the performance of
@@ -43,19 +47,24 @@ by other LDAP modules</td></tr>
     flag to the <code class="program"><a href="../programs/configure.html">configure</a></code> script when building
     Apache.</p>
 
-    <p>SSL/TLS support is dependant on which LDAP toolkit has been
+    <p>SSL/TLS support is dependent on which LDAP toolkit has been
     linked to <a class="glossarylink" href="../glossary.html#apr" title="see glossary">APR</a>. As of this writing, APR-util supports:
     <a href="http://www.openldap.org/">OpenLDAP SDK</a> (2.x or later),
     <a href="http://developer.novell.com/ndk/cldap.htm">Novell LDAP
-    SDK</a>, <a href="http://www.mozilla.org/directory/csdk.html">
-    Mozilla LDAP SDK</a>, native Solaris LDAP SDK (Mozilla based),
-    native Microsoft LDAP SDK, or the
-    <a href="http://www.iplanet.com/downloads/developer/">iPlanet
-    (Netscape)</a> SDK. See the <a href="http://apr.apache.org">APR</a>
+    SDK</a>, <a href="https://wiki.mozilla.org/LDAP_C_SDK">
+    Mozilla LDAP SDK</a>, native Solaris LDAP SDK (Mozilla based) or the
+    native Microsoft LDAP SDK. See the <a href="http://apr.apache.org">APR</a>
     website for details.</p>
 
 </div>
-<div id="quickview"><h3 class="directives">Directives</h3>
+<div id="quickview"><h3>Topics</h3>
+<ul id="topics">
+<li><img alt="" src="../images/down.gif" /> <a href="#exampleconfig">Example Configuration</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#pool">LDAP Connection Pool</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#cache">LDAP Cache</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#usingssltls">Using SSL/TLS</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#settingcerts">SSL/TLS Certificates</a></li>
+</ul><h3 class="directives">Directives</h3>
 <ul id="toc">
 <li><img alt="" src="../images/down.gif" /> <a href="#ldapcacheentries">LDAPCacheEntries</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#ldapcachettl">LDAPCacheTTL</a></li>
@@ -76,14 +85,9 @@ by other LDAP modules</td></tr>
 <li><img alt="" src="../images/down.gif" /> <a href="#ldaptrustedmode">LDAPTrustedMode</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#ldapverifyservercert">LDAPVerifyServerCert</a></li>
 </ul>
-<h3>Topics</h3>
-<ul id="topics">
-<li><img alt="" src="../images/down.gif" /> <a href="#exampleconfig">Example Configuration</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#pool">LDAP Connection Pool</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#cache">LDAP Cache</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#usingssltls">Using SSL/TLS</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#settingcerts">SSL/TLS Certificates</a></li>
-</ul></div>
+<h3>Bugfix checklist</h3><ul class="seealso"><li><a href="https://www.apache.org/dist/httpd/CHANGES_2.4">httpd changelog</a></li><li><a href="https://bz.apache.org/bugzilla/buglist.cgi?bug_status=__open__&amp;list_id=144532&amp;product=Apache%20httpd-2&amp;query_format=specific&amp;order=changeddate%20DESC%2Cpriority%2Cbug_severity&amp;component=mod_ldap">Known issues</a></li><li><a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2&amp;component=mod_ldap">Report a bug</a></li></ul><h3>See also</h3>
+<ul class="seealso">
+<li><a href="#comments_section">Comments</a></li></ul></div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="exampleconfig" id="exampleconfig">Example Configuration</a></h2>
@@ -91,34 +95,31 @@ by other LDAP modules</td></tr>
     <code class="module"><a href="../mod/mod_ldap.html">mod_ldap</a></code> to increase the performance of HTTP Basic
     authentication provided by <code class="module"><a href="../mod/mod_authnz_ldap.html">mod_authnz_ldap</a></code>.</p>
 
-    <div class="example"><p><code>
-      # Enable the LDAP connection pool and shared<br />
-      # memory cache. Enable the LDAP cache status<br />
-      # handler. Requires that mod_ldap and mod_authnz_ldap<br />
-      # be loaded. Change the "yourdomain.example.com" to<br />
-      # match your domain.<br />
-      <br />
-      LDAPSharedCacheSize 500000<br />
-      LDAPCacheEntries 1024<br />
-      LDAPCacheTTL 600<br />
-      LDAPOpCacheEntries 1024<br />
-      LDAPOpCacheTTL 600<br />
-      <br />
-      &lt;Location /ldap-status&gt;<br />
-      <span class="indent">
-        SetHandler ldap-status<br />
+    <pre class="prettyprint lang-config"># Enable the LDAP connection pool and shared
+# memory cache. Enable the LDAP cache status
+# handler. Requires that mod_ldap and mod_authnz_ldap
+# be loaded. Change the "yourdomain.example.com" to
+# match your domain.
 
-        Require host yourdomain.example.com<br />
+LDAPSharedCacheSize 500000
+LDAPCacheEntries 1024
+LDAPCacheTTL 600
+LDAPOpCacheEntries 1024
+LDAPOpCacheTTL 600
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "LDAP Protected"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one<br />
-        Require valid-user<br />
-      </span>
-      &lt;/Location&gt;
-    </code></p></div>
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+
+    Require host yourdomain.example.com
+
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;</pre>
+
 </div><div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="pool" id="pool">LDAP Connection Pool</a></h2>
@@ -143,10 +144,10 @@ by other LDAP modules</td></tr>
     credentials used when binding to an LDAP server. These
     credentials can be provided to LDAP servers that do not
     allow anonymous binds during referral chasing. To control
-    this feature, see the <code class="directive"><a href="#&#10;    ldapreferrals">
-    LDAPReferrals</a></code> and <code class="directive"><a href="#&#10;    ldapreferralhoplimit">
-    LDAPReferralHopLimit</a></code> directives. By default,
-    this feature is enabled.</p>
+    this feature, see the
+    <code class="directive"><a href="#ldapreferrals">LDAPReferrals</a></code> and
+    <code class="directive"><a href="#ldapreferralhoplimit">LDAPReferralHopLimit</a></code>
+    directives. By default, this feature is enabled.</p>
 </div><div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="cache" id="cache">LDAP Cache</a></h2>
@@ -212,13 +213,10 @@ by other LDAP modules</td></tr>
       following directives could be used to access the
       <code class="module"><a href="../mod/mod_ldap.html">mod_ldap</a></code> cache information:</p>
 
-      <div class="example"><p><code>
-        &lt;Location /server/cache-info&gt;<br />
-        <span class="indent">
-          SetHandler ldap-status<br />
-        </span>
-        &lt;/Location&gt;
-      </code></p></div>
+      <pre class="prettyprint lang-config">&lt;Location "/server/cache-info"&gt;
+    SetHandler ldap-status
+&lt;/Location&gt;</pre>
+
 
       <p>By fetching the URL <code>http://servername/cache-info</code>,
       the administrator can get a status report of every cache that is used
@@ -233,58 +231,53 @@ by other LDAP modules</td></tr>
 <h2><a name="usingssltls" id="usingssltls">Using SSL/TLS</a></h2>
 
     <p>The ability to create an SSL and TLS connections to an LDAP server
-    is defined by the directives <code class="directive"><a href="#&#10;    ldaptrustedglobalcert">
-    LDAPTrustedGlobalCert</a></code>, <code class="directive"><a href="#&#10;    ldaptrustedclientcert">
-    LDAPTrustedClientCert</a></code> and <code class="directive"><a href="#&#10;    ldaptrustedmode">
-    LDAPTrustedMode</a></code>. These directives specify the CA and
-    optional client certificates to be used, as well as the type of
-    encryption to be used on the connection (none, SSL or TLS/STARTTLS).</p>
+    is defined by the directives
+    <code class="directive"><a href="#ldaptrustedglobalcert">LDAPTrustedGlobalCert</a></code>,
+    <code class="directive"><a href="#ldaptrustedclientcert">LDAPTrustedClientCert</a></code>
+     and <code class="directive"><a href="#ldaptrustedmode">LDAPTrustedMode</a></code>.
+    These directives specify the CA and optional client certificates to be used,
+    as well as the type of encryption to be used on the connection (none, SSL or
+    TLS/STARTTLS).</p>
 
-    <div class="example"><p><code>
-      # Establish an SSL LDAP connection on port 636. Requires that <br />
-      # mod_ldap and mod_authnz_ldap be loaded. Change the <br />
-      # "yourdomain.example.com" to match your domain.<br />
-      <br />
-      LDAPTrustedGlobalCert CA_DER /certs/certfile.der<br />
-      <br />
-      &lt;Location /ldap-status&gt;<br />
-      <span class="indent">
-        SetHandler ldap-status<br />
+    <pre class="prettyprint lang-config"># Establish an SSL LDAP connection on port 636. Requires that
+# mod_ldap and mod_authnz_ldap be loaded. Change the
+# "yourdomain.example.com" to match your domain.
 
-        Require host yourdomain.example.com<br />
+LDAPTrustedGlobalCert CA_DER /certs/certfile.der
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "LDAP Protected"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-        Require valid-user<br />
-      </span>
-      &lt;/Location&gt;
-    </code></p></div>
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
 
-    <div class="example"><p><code>
-      # Establish a TLS LDAP connection on port 389. Requires that <br />
-      # mod_ldap and mod_authnz_ldap be loaded. Change the <br />
-      # "yourdomain.example.com" to match your domain.<br />
-      <br />
-      LDAPTrustedGlobalCert CA_DER /certs/certfile.der<br />
-      <br />
-      &lt;Location /ldap-status&gt;<br />
-      <span class="indent">
-        SetHandler ldap-status<br />
+    Require host yourdomain.example.com
 
-        Require host yourdomain.example.com<br />
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;</pre>
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "LDAP Protected"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one TLS<br />
-        Require valid-user<br />
-      </span>
-      &lt;/Location&gt;
-    </code></p></div>
+
+    <pre class="prettyprint lang-config"># Establish a TLS LDAP connection on port 389. Requires that
+# mod_ldap and mod_authnz_ldap be loaded. Change the
+# "yourdomain.example.com" to match your domain.
+
+LDAPTrustedGlobalCert CA_DER /certs/certfile.der
+
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+
+    Require host yourdomain.example.com
+
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one TLS
+    Require valid-user
+&lt;/Location&gt;</pre>
+
 
 </div><div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
@@ -317,29 +310,26 @@ by other LDAP modules</td></tr>
         an error when an attempt is made to contact the LDAP server at
         runtime.</p>
 
-        <div class="example"><p><code>
-            # Specify a Netscape CA certificate file<br />
-            LDAPTrustedGlobalCert CA_CERT7_DB /certs/cert7.db<br />
-            # Specify an optional key3.db file for client certificate support<br />
-            LDAPTrustedGlobalCert CERT_KEY3_DB /certs/key3.db<br />
-            # Specify the secmod file if required<br />
-            LDAPTrustedGlobalCert CA_SECMOD /certs/secmod<br />
-            &lt;Location /ldap-status&gt;<br />
-            <span class="indent">
-                SetHandler ldap-status<br />
+        <pre class="prettyprint lang-config"># Specify a Netscape CA certificate file
+LDAPTrustedGlobalCert CA_CERT7_DB /certs/cert7.db
+# Specify an optional key3.db file for client certificate support
+LDAPTrustedGlobalCert CERT_KEY3_DB /certs/key3.db
+# Specify the secmod file if required
+LDAPTrustedGlobalCert CA_SECMOD /certs/secmod
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
 
-                Require host yourdomain.example.com<br />
+    Require host yourdomain.example.com
 
-                Satisfy any<br />
-                AuthType Basic<br />
-                AuthName "LDAP Protected"<br />
-                AuthBasicProvider ldap<br />
-                LDAPTrustedClientCert CERT_NICKNAME &lt;nickname&gt; [password]<br />
-                AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-                Require valid-user<br />
-            </span>
-            &lt;/Location&gt;
-        </code></p></div>
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    LDAPTrustedClientCert CERT_NICKNAME &lt;nickname&gt; [password]
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;</pre>
+
 
     
 
@@ -359,16 +349,15 @@ by other LDAP modules</td></tr>
         LDAPTrustedMode parameter. If an ldaps:// URL is specified,
         SSL mode is forced, override this directive.</p>
 
-        <div class="example"><p><code>
-             # Specify two CA certificate files<br />
-             LDAPTrustedGlobalCert CA_DER /certs/cacert1.der<br />
-             LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem<br />
-             # Specify a client certificate file and key<br />
-             LDAPTrustedGlobalCert CERT_BASE64 /certs/cert1.pem<br />
-             LDAPTrustedGlobalCert KEY_BASE64 /certs/key1.pem [password]<br />
-             # Do not use this directive, as it will throw an error<br />
-             #LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem<br />
-        </code></p></div>
+        <pre class="prettyprint lang-config"># Specify two CA certificate files
+LDAPTrustedGlobalCert CA_DER /certs/cacert1.der
+LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem
+# Specify a client certificate file and key
+LDAPTrustedGlobalCert CERT_BASE64 /certs/cert1.pem
+LDAPTrustedGlobalCert KEY_BASE64 /certs/key1.pem [password]
+# Do not use this directive, as it will throw an error
+#LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem</pre>
+
 
     
 
@@ -391,30 +380,27 @@ by other LDAP modules</td></tr>
         (ldaps://) support has been deprecated to be replaced with TLS,
         although the SSL functionality still works.</p>
 
-        <div class="example"><p><code>
-             # Specify two CA certificate files<br />
-             LDAPTrustedGlobalCert CA_DER /certs/cacert1.der<br />
-             LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem<br />
-            &lt;Location /ldap-status&gt;<br />
-            <span class="indent">
-                SetHandler ldap-status<br />
+        <pre class="prettyprint lang-config"># Specify two CA certificate files
+LDAPTrustedGlobalCert CA_DER /certs/cacert1.der
+LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
 
-                Require host yourdomain.example.com<br />
+    Require host yourdomain.example.com
 
-                LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem<br />
-                LDAPTrustedClientCert KEY_BASE64 /certs/key1.pem<br />
-                # CA certs respecified due to per-directory client certs<br />
-                LDAPTrustedClientCert CA_DER /certs/cacert1.der<br />
-                LDAPTrustedClientCert CA_BASE64 /certs/cacert2.pem<br />
-                Satisfy any<br />
-                AuthType Basic<br />
-                AuthName "LDAP Protected"<br />
-                AuthBasicProvider ldap<br />
-                AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-                Require valid-user<br />
-            </span>
-            &lt;/Location&gt;
-        </code></p></div>
+    LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem
+    LDAPTrustedClientCert KEY_BASE64 /certs/key1.pem
+    # CA certs respecified due to per-directory client certs
+    LDAPTrustedClientCert CA_DER /certs/cacert1.der
+    LDAPTrustedClientCert CA_BASE64 /certs/cacert2.pem
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;</pre>
+
 
     
 
@@ -489,7 +475,17 @@ by other LDAP modules</td></tr>
 
     <p>A setting of 0 causes connections to never be saved in the backend
     connection pool.  The default value of -1, and any other negative value,
-     allows connections of any age to be reused.</p>
+    allows connections of any age to be reused.</p>
+
+    <p>For performance reasons, the reference time used by this directive is
+    based on when the LDAP connection is returned to the pool, not the time
+    of the last successful I/O with the LDAP server.  </p>
+
+    <p>Since 2.4.10, new measures are in place to avoid the reference time
+    from being inflated by cache hits or slow requests.  First, the reference
+    time is not updated if no backend LDAP conncetions were needed. Second,
+    the reference time uses the time the HTTP request was received instead
+    of the time the request is completed.</p>
 
     <div class="note"><p>This timeout defaults to units of seconds, but accepts
     suffixes for milliseconds (ms), minutes (min), and hours (h).
@@ -595,7 +591,7 @@ valid</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_ldap</td></tr>
 </table>
-    <p>This directive, if enabled by the <code>LDAPReferrals</code> directive,
+    <p>This directive, if enabled by the <code class="directive">LDAPReferrals</code> directive,
     limits the number of referral hops that are followed before terminating an
     LDAP query.</p>
 
@@ -608,20 +604,41 @@ valid</td></tr>
 <div class="directive-section"><h2><a name="LDAPReferrals" id="LDAPReferrals">LDAPReferrals</a> <a name="ldapreferrals" id="ldapreferrals">Directive</a></h2>
 <table class="directive">
 <tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Enable referral chasing during queries to the LDAP server.</td></tr>
-<tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>LDAPReferrals <var>On|Off</var></code></td></tr>
+<tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>LDAPReferrals <var>On|Off|default</var></code></td></tr>
 <tr><th><a href="directive-dict.html#Default">Default:</a></th><td><code>LDAPReferrals On</code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Context:</a></th><td>directory, .htaccess</td></tr>
 <tr><th><a href="directive-dict.html#Override">Override:</a></th><td>AuthConfig</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_ldap</td></tr>
+<tr><th><a href="directive-dict.html#Compatibility">Compatibility:</a></th><td>The <var>default</var> parameter is available in Apache 2.4.7 and later</td></tr>
 </table>
     <p>Some LDAP servers divide their directory among multiple domains and use referrals
-    to direct a client when a domain boundary is crossed. By setting <code>LDAPReferrals On</code>
-    referrals will be chased (setting it to off causes referrals to be ignored). The directive
-    <code>LDAPReferralHopLimit</code> works in conjunction with this directive to limit the
-    number of referral hops to follow before terminating the LDAP query. When referral processing
-    is enabled client credentials will be provided, via a rebind callback, for any LDAP server
-    requiring them. </p>
+    to direct a client when a domain boundary is crossed. This is similar to a HTTP redirect.
+    LDAP client libraries may or may not chase referrals by default. This directive
+    explicitly configures the referral chasing in the underlying SDK.</p>
+
+
+    <p><code class="directive">LDAPReferrals</code> takes the following values:</p>
+    <dl>
+     <dt>"on"</dt>
+     <dd> <p> When set to "on", the underlying SDK's referral chasing state
+              is enabled, <code class="directive">LDAPReferralHopLimit</code> is used to
+              override the SDK's hop limit, and an LDAP rebind callback is
+              registered.</p></dd>
+     <dt>"off"</dt>
+     <dd> <p> When set to "off", the underlying SDK's referral chasing state
+              is disabled completely.</p></dd>
+     <dt>"default"</dt>
+     <dd> <p> When set to "default", the underlying SDK's referral chasing state
+              is not changed, <code class="directive">LDAPReferralHopLimit</code> is not
+              used to overide the SDK's hop limit, and no LDAP rebind callback is
+              registered.</p></dd>
+    </dl>
+
+    <p>The directive <code class="directive">LDAPReferralHopLimit</code> works in conjunction with
+    this directive to limit the number of referral hops to follow before terminating the LDAP query.
+    When referral processing is enabled by a value of "On", client credentials will be provided,
+    via a rebind callback, for any LDAP server requiring them.</p>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -634,7 +651,7 @@ valid</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_ldap</td></tr>
 </table>
-    <p>The server will retry failed LDAP requests up to 
+    <p>The server will retry failed LDAP requests up to
     <code class="directive">LDAPRetries</code> times.  Setting this
     directive to 0 disables retries.</p>
     <p>LDAP errors such as timeouts and refused connections are retryable.</p>
@@ -651,7 +668,7 @@ valid</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_ldap</td></tr>
 </table>
     <p>If <code class="directive">LDAPRetryDelay</code> is set to a non-zero
-    value, the server will delay retrying an LDAP request for the 
+    value, the server will delay retrying an LDAP request for the
     specified amount of time.  Setting this directive to 0 will
     result in any retry to occur without delay.</p>
 
@@ -662,14 +679,17 @@ valid</td></tr>
 <div class="directive-section"><h2><a name="LDAPSharedCacheFile" id="LDAPSharedCacheFile">LDAPSharedCacheFile</a> <a name="ldapsharedcachefile" id="ldapsharedcachefile">Directive</a></h2>
 <table class="directive">
 <tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Sets the shared memory cache file</td></tr>
-<tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>LDAPSharedCacheFile <var>directory-path/filename</var></code></td></tr>
+<tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>LDAPSharedCacheFile <var>file-path</var></code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Context:</a></th><td>server config</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Extension</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_ldap</td></tr>
 </table>
-    <p>Specifies the directory path and file name of the shared memory
-    cache file. If not set, anonymous shared memory will be used if the
-    platform supports it.</p>
+    <p>Specifies the path of the shared memory cache file. If not set,
+    anonymous shared memory will be used if the platform supports it.</p>
+
+    <p>If <var>file-path</var> is not an absolute path, the location specified
+    will be relative to the value of
+    <code class="directive"><a href="../mod/core.html#defaultruntimedir">DefaultRuntimeDir</a></code>.</p>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -727,7 +747,7 @@ connection client certificates.</td></tr>
     <p>It specifies the directory path, file name or nickname of a
     per connection client certificate used when establishing an SSL
     or TLS connection to an LDAP server. Different locations or
-    directories may have their own independant client certificate
+    directories may have their own independent client certificate
     settings. Some LDAP toolkits (notably Novell)
     do not support per connection client certificates, and will throw an
     error on LDAP server connection if you try to use this directive
@@ -829,7 +849,28 @@ Certificate Authority or global client certificates</td></tr>
 <div class="bottomlang">
 <p><span>Available Languages: </span><a href="../en/mod/mod_ldap.html" title="English">&nbsp;en&nbsp;</a> |
 <a href="../fr/mod/mod_ldap.html" hreflang="fr" rel="alternate" title="Français">&nbsp;fr&nbsp;</a></p>
-</div><div id="footer">
-<p class="apache">Copyright 2012 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div>
+</div><div class="top"><a href="#page-header"><img src="../images/up.gif" alt="top" /></a></div><div class="section"><h2><a id="comments_section" name="comments_section">Comments</a></h2><div class="warning"><strong>Notice:</strong><br />This is not a Q&amp;A section. Comments placed here should be pointed towards suggestions on improving the documentation or server, and may be removed again by our moderators if they are either implemented or considered invalid/off-topic. Questions on how to manage the Apache HTTP Server should be directed at either our IRC channel, #httpd, on Freenode, or sent to our <a href="http://httpd.apache.org/lists.html">mailing lists</a>.</div>
+<script type="text/javascript"><!--//--><![CDATA[//><!--
+var comments_shortname = 'httpd';
+var comments_identifier = 'http://httpd.apache.org/docs/trunk/mod/mod_ldap.html';
+(function(w, d) {
+    if (w.location.hostname.toLowerCase() == "httpd.apache.org") {
+        d.write('<div id="comments_thread"><\/div>');
+        var s = d.createElement('script');
+        s.type = 'text/javascript';
+        s.async = true;
+        s.src = 'https://comments.apache.org/show_comments.lua?site=' + comments_shortname + '&page=' + comments_identifier;
+        (d.getElementsByTagName('head')[0] || d.getElementsByTagName('body')[0]).appendChild(s);
+    }
+    else {
+        d.write('<div id="comments_thread">Comments are disabled for this page at the moment.<\/div>');
+    }
+})(window, document);
+//--><!]]></script></div><div id="footer">
+<p class="apache">Copyright 2016 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+if (typeof(prettyPrint) !== 'undefined') {
+    prettyPrint();
+}
+//--><!]]></script>
 </body></html>

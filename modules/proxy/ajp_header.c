@@ -37,7 +37,7 @@ static const char *long_res_header_for_sc(int sc)
 {
     const char *rc = NULL;
     sc = sc & 0X00FF;
-    if(sc <= SC_RES_HEADERS_NUM && sc > 0) {
+    if (sc <= SC_RES_HEADERS_NUM && sc > 0) {
         rc = response_trans_headers[sc - 1];
     }
 
@@ -89,39 +89,39 @@ static int sc_for_req_header(const char *header_name)
                 return UNKNOWN_METHOD;
         break;
         case 'C':
-            if(strcmp(p, "OOKIE2") == 0)
+            if (strcmp(p, "OOKIE2") == 0)
                 return SC_COOKIE2;
             else if (strcmp(p, "OOKIE") == 0)
                 return SC_COOKIE;
-            else if(strcmp(p, "ONNECTION") == 0)
+            else if (strcmp(p, "ONNECTION") == 0)
                 return SC_CONNECTION;
-            else if(strcmp(p, "ONTENT-TYPE") == 0)
+            else if (strcmp(p, "ONTENT-TYPE") == 0)
                 return SC_CONTENT_TYPE;
-            else if(strcmp(p, "ONTENT-LENGTH") == 0)
+            else if (strcmp(p, "ONTENT-LENGTH") == 0)
                 return SC_CONTENT_LENGTH;
             else
                 return UNKNOWN_METHOD;
         break;
         case 'H':
-            if(strcmp(p, "OST") == 0)
+            if (strcmp(p, "OST") == 0)
                 return SC_HOST;
             else
                 return UNKNOWN_METHOD;
         break;
         case 'P':
-            if(strcmp(p, "RAGMA") == 0)
+            if (strcmp(p, "RAGMA") == 0)
                 return SC_PRAGMA;
             else
                 return UNKNOWN_METHOD;
         break;
         case 'R':
-            if(strcmp(p, "EFERER") == 0)
+            if (strcmp(p, "EFERER") == 0)
                 return SC_REFERER;
             else
                 return UNKNOWN_METHOD;
         break;
         case 'U':
-            if(strcmp(p, "SER-AGENT") == 0)
+            if (strcmp(p, "SER-AGENT") == 0)
                 return SC_USER_AGENT;
             else
                 return UNKNOWN_METHOD;
@@ -139,7 +139,7 @@ static const unsigned char sc_for_req_method_table[] = {
     SC_M_PUT,
     SC_M_POST,
     SC_M_DELETE,
-    0,                      /* M_DELETE */
+    0,                      /* M_CONNECT */
     SC_M_OPTIONS,
     SC_M_TRACE,
     0,                      /* M_PATCH  */
@@ -213,7 +213,8 @@ AJPV13_REQUEST/AJPV14_REQUEST=
 
 static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
                                           request_rec *r,
-                                          apr_uri_t *uri)
+                                          apr_uri_t *uri,
+                                          const char *secret)
 {
     int method;
     apr_uint32_t i, num_headers = 0;
@@ -226,10 +227,10 @@ static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
     ap_log_rerror(APLOG_MARK, APLOG_TRACE8, 0, r, "Into ajp_marshal_into_msgb");
 
     if ((method = sc_for_req_method_by_id(r)) == UNKNOWN_METHOD) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00967)
-               "ajp_marshal_into_msgb - No such method %s",
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE8, 0, r, APLOGNO(02437)
+               "ajp_marshal_into_msgb - Sending unknown method %s as request attribute",
                r->method);
-        return AJP_EBAD_METHOD;
+        method = SC_M_JK_STORED;
     }
 
     is_ssl = (apr_byte_t) ap_proxy_conn_is_https(r->connection);
@@ -239,7 +240,7 @@ static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
         num_headers = t->nelts;
     }
 
-    remote_host = (char *)ap_get_remote_host(r->connection, r->per_dir_config, REMOTE_HOST, NULL);
+    remote_host = (char *)ap_get_useragent_host(r, REMOTE_HOST, NULL);
 
     ajp_msg_reset(msg);
 
@@ -293,17 +294,15 @@ static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
                    i, elts[i].key, elts[i].val);
     }
 
-/* XXXX need to figure out how to do this
-    if (s->secret) {
+    if (secret) {
         if (ajp_msg_append_uint8(msg, SC_A_SECRET) ||
-            ajp_msg_append_string(msg, s->secret)) {
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                   "Error ajp_marshal_into_msgb - "
+            ajp_msg_append_string(msg, secret)) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(03228)
+                   "ajp_marshal_into_msgb: "
                    "Error appending secret");
             return APR_EGENERAL;
         }
     }
- */
 
     if (r->user) {
         if (ajp_msg_append_uint8(msg, SC_A_REMOTE_USER) ||
@@ -404,6 +403,37 @@ static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
             }
         }
     }
+    /* If the method was unrecognized, encode it as an attribute */
+    if (method == SC_M_JK_STORED) {
+        if (ajp_msg_append_uint8(msg, SC_A_STORED_METHOD)
+            || ajp_msg_append_string(msg, r->method)) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02438)
+                          "ajp_marshal_into_msgb: "
+                          "Error appending the method '%s' as request attribute",
+                          r->method);
+            return AJP_EOVERFLOW;
+        }
+    }
+    /* Forward the SSL protocol name.
+     * Modern Tomcat versions know how to retrieve
+     * the protocol name from this attribute.
+     */
+    if (is_ssl) {
+        if ((envvar = ap_proxy_ssl_val(r->pool, r->server, r->connection, r,
+                                       AJP13_SSL_PROTOCOL_INDICATOR))
+            && envvar[0]) {
+            const char *key = SC_A_SSL_PROTOCOL;
+            if (ajp_msg_append_uint8(msg, SC_A_REQ_ATTRIBUTE) ||
+                ajp_msg_append_string(msg, key)   ||
+                ajp_msg_append_string(msg, envvar)) {
+                ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02830)
+                        "ajp_marshal_into_msgb: "
+                        "Error appending attribute %s=%s",
+                        key, envvar);
+                return AJP_EOVERFLOW;
+            }
+        }
+    }
     /* Forward the remote port information, which was forgotten
      * from the builtin data of the AJP 13 protocol.
      * Since the servlet spec allows to retrieve it via getRemotePort(),
@@ -418,6 +448,26 @@ static apr_status_t ajp_marshal_into_msgb(ajp_msg_t *msg,
             ajp_msg_append_string(msg, key)   ||
             ajp_msg_append_string(msg, val)) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00980)
+                    "ajp_marshal_into_msgb: "
+                    "Error appending attribute %s=%s",
+                    key, val);
+            return AJP_EOVERFLOW;
+        }
+    }
+    /* Forward the local ip address information, which was forgotten
+     * from the builtin data of the AJP 13 protocol.
+     * Since the servlet spec allows to retrieve it via getLocalAddr(),
+     * we provide the address to the Tomcat connector as a request
+     * attribute. Modern Tomcat versions know how to retrieve
+     * the local address from this attribute.
+     */
+    {
+        const char *key = SC_A_REQ_LOCAL_ADDR;
+        char *val = r->connection->local_ip;
+        if (ajp_msg_append_uint8(msg, SC_A_REQ_ATTRIBUTE) ||
+            ajp_msg_append_string(msg, key)   ||
+            ajp_msg_append_string(msg, val)) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02646)
                     "ajp_marshal_into_msgb: "
                     "Error appending attribute %s=%s",
                     key, val);
@@ -497,7 +547,7 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
     rc = ajp_msg_get_uint16(msg, &status);
 
     if (rc != APR_SUCCESS) {
-         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00983)
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00983)
                 "ajp_unmarshal_response: Null status");
         return rc;
     }
@@ -510,7 +560,8 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
         ap_xlate_proto_from_ascii(ptr, strlen(ptr));
 #endif
         r->status_line =  apr_psprintf(r->pool, "%d %s", status, ptr);
-    } else {
+    }
+    else {
         r->status_line = NULL;
     }
 
@@ -530,7 +581,8 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
         apr_table_do(addit_dammit, save_table, r->headers_out,
                      "Set-Cookie", NULL);
         r->headers_out = save_table;
-    } else {
+    }
+    else {
         r->headers_out = NULL;
         num_headers = 0;
     }
@@ -539,7 +591,7 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
            "ajp_unmarshal_response: Number of headers is = %d",
            num_headers);
 
-    for(i = 0 ; i < (int) num_headers ; i++) {
+    for (i = 0; i < (int)num_headers; i++) {
         apr_uint16_t name;
         const char *stringname;
         const char *value;
@@ -558,7 +610,8 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
                        name);
                 return AJP_EBAD_HEADER;
             }
-        } else {
+        }
+        else {
             name = 0;
             rc = ajp_msg_get_string(msg, &stringname);
             if (rc != APR_SUCCESS) {
@@ -579,15 +632,15 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
         }
 
         /* Set-Cookie need additional processing */
-        if (!strcasecmp(stringname, "Set-Cookie")) {
+        if (!ap_cstr_casecmp(stringname, "Set-Cookie")) {
             value = ap_proxy_cookie_reverse_map(r, dconf, value);
         }
         /* Location, Content-Location, URI and Destination need additional
          * processing */
-        else if (!strcasecmp(stringname, "Location")
-                 || !strcasecmp(stringname, "Content-Location")
-                 || !strcasecmp(stringname, "URI")
-                 || !strcasecmp(stringname, "Destination"))
+        else if (!ap_cstr_casecmp(stringname, "Location")
+                 || !ap_cstr_casecmp(stringname, "Content-Location")
+                 || !ap_cstr_casecmp(stringname, "URI")
+                 || !ap_cstr_casecmp(stringname, "Destination"))
         {
           value = ap_proxy_location_reverse_map(r, dconf, value);
         }
@@ -600,7 +653,7 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
         apr_table_add(r->headers_out, stringname, value);
 
         /* Content-type needs an additional handling */
-        if (strcasecmp(stringname, "Content-Type") == 0) {
+        if (ap_cstr_casecmp(stringname, "Content-Type") == 0) {
              /* add corresponding filter */
             ap_set_content_type(r, apr_pstrdup(r->pool, value));
             ap_log_rerror(APLOG_MARK, APLOG_TRACE5, 0, r,
@@ -617,7 +670,8 @@ static apr_status_t ajp_unmarshal_response(ajp_msg_t *msg,
 apr_status_t ajp_send_header(apr_socket_t *sock,
                              request_rec *r,
                              apr_size_t buffsize,
-                             apr_uri_t *uri)
+                             apr_uri_t *uri,
+                             const char *secret)
 {
     ajp_msg_t *msg;
     apr_status_t rc;
@@ -629,7 +683,7 @@ apr_status_t ajp_send_header(apr_socket_t *sock,
         return rc;
     }
 
-    rc = ajp_marshal_into_msgb(msg, r, uri);
+    rc = ajp_marshal_into_msgb(msg, r, uri, secret);
     if (rc != APR_SUCCESS) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00988)
                "ajp_send_header: ajp_marshal_into_msgb failed");

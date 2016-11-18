@@ -43,7 +43,16 @@
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>
+#else
+/* Not sure what absence of unistd would signify for tty.  Treating it as a
+ * big NO is safe, as we then won't try to write to stderr that's not a tty.
+ */
+#define isatty(n) (0)
 #endif
+
+/* we know core's module_index is 0 */
+#undef APLOG_MODULE_INDEX
+#define APLOG_MODULE_INDEX AP_CORE_MODULE_INDEX
 
 /* WARNING: Win32 binds http_main.c dynamically to the server. Please place
  *          extern functions and global data in another appropriate module.
@@ -98,13 +107,17 @@ static void show_compile_settings(void)
     printf("Server's Module Magic Number: %u:%u\n",
            MODULE_MAGIC_NUMBER_MAJOR, MODULE_MAGIC_NUMBER_MINOR);
 #if APR_MAJOR_VERSION >= 2
-    printf("Server loaded:  APR %s\n", apr_version_string());
-    printf("Compiled using: APR %s\n", APR_VERSION_STRING);
+    printf("Server loaded:  APR %s, PCRE %s\n",
+           apr_version_string(), ap_pcre_version_string(AP_REG_PCRE_LOADED));
+    printf("Compiled using: APR %s, PCRE %s\n",
+           APR_VERSION_STRING, ap_pcre_version_string(AP_REG_PCRE_COMPILED));
 #else
-    printf("Server loaded:  APR %s, APR-UTIL %s\n",
-           apr_version_string(), apu_version_string());
-    printf("Compiled using: APR %s, APR-UTIL %s\n",
-           APR_VERSION_STRING, APU_VERSION_STRING);
+    printf("Server loaded:  APR %s, APR-UTIL %s, PCRE %s\n",
+           apr_version_string(), apu_version_string(),
+           ap_pcre_version_string(AP_REG_PCRE_LOADED));
+    printf("Compiled using: APR %s, APR-UTIL %s, PCRE %s\n",
+           APR_VERSION_STRING, APU_VERSION_STRING,
+           ap_pcre_version_string(AP_REG_PCRE_COMPILED));
 #endif
     /* sizeof(foo) is long on some platforms so we might as well
      * make it long everywhere to keep the printf format
@@ -259,10 +272,19 @@ static void destroy_and_exit_process(process_rec *process,
      * by us before they can do so. In this case maybe valueable log messages
      * might get lost.
      */
+
+    /* If we are to print an error, we need the name before we destroy pool.
+     * short_name is a pointer into argv, so remains valid.
+     */
+    const char *name = process->short_name ? process->short_name : "httpd";
+
     apr_sleep(TASK_SWITCH_SLEEP);
     ap_main_state = AP_SQ_MS_EXITING;
     apr_pool_destroy(process->pool); /* and destroy all descendent pools */
     apr_terminate();
+    if ((process_exit_value != 0) && isatty(fileno(stderr))) {
+        fprintf(stderr, "%s: abnormal exit %d\n", name, process_exit_value);
+    }
     exit(process_exit_value);
 }
 
@@ -426,6 +448,8 @@ static void usage(process_rec *process)
     ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
                  "  -M                 : a synonym for -t -D DUMP_MODULES");
     ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+                 "  -t -D DUMP_INCLUDES: show all included configuration files");
+    ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
                  "  -t                 : run syntax check for config files");
     ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
                  "  -T                 : start without DocumentRoot(s) check");
@@ -453,6 +477,7 @@ int main(int argc, const char * const argv[])
     module **mod;
     const char *opt_arg;
     APR_OPTIONAL_FN_TYPE(ap_signal_server) *signal_server;
+    int rc = OK;
 
     AP_MONCONTROL(0); /* turn off profiling of startup */
 
@@ -522,6 +547,9 @@ int main(int argc, const char * const argv[])
                 ap_run_mode = AP_SQ_RM_CONFIG_DUMP;
             /* Setting -D DUMP_MODULES is equivalent to setting -M */
             else if (strcmp(opt_arg, "DUMP_MODULES") == 0)
+                ap_run_mode = AP_SQ_RM_CONFIG_DUMP;
+            /* Setting -D DUMP_INCLUDES is a type of configuration dump */
+            else if (strcmp(opt_arg, "DUMP_INCLUDES") == 0)
                 ap_run_mode = AP_SQ_RM_CONFIG_DUMP;
             break;
 
@@ -671,6 +699,11 @@ int main(int argc, const char * const argv[])
         }
     }
 
+    /* If our config failed, deal with that here. */
+    if (rv != OK) {
+        destroy_and_exit_process(process, 1);
+    }
+
     signal_server = APR_RETRIEVE_OPTIONAL_FN(ap_signal_server);
     if (signal_server) {
         int exit_status;
@@ -678,11 +711,6 @@ int main(int argc, const char * const argv[])
         if (signal_server(&exit_status, pconf) != 0) {
             destroy_and_exit_process(process, exit_status);
         }
-    }
-
-    /* If our config failed, deal with that here. */
-    if (rv != OK) {
-        destroy_and_exit_process(process, 1);
     }
 
     apr_pool_clear(plog);
@@ -701,7 +729,7 @@ int main(int argc, const char * const argv[])
 
     apr_pool_destroy(ptemp);
 
-    for (;;) {
+    do {
         ap_main_state = AP_SQ_MS_DESTROY_CONFIG;
         apr_hook_deregister_all();
         apr_pool_clear(pconf);
@@ -774,16 +802,23 @@ int main(int argc, const char * const argv[])
         ap_run_optional_fn_retrieve();
 
         ap_main_state = AP_SQ_MS_RUN_MPM;
-        if (ap_run_mpm(pconf, plog, ap_server_conf) != OK)
-            break;
+        rc = ap_run_mpm(pconf, plog, ap_server_conf);
 
         apr_pool_lock(pconf, 0);
+
+    } while (rc == OK);
+
+    if (rc == DONE) {
+        rc = OK;
     }
+    else if (rc != OK) {
+        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, NULL, APLOGNO(02818)
+                     "MPM run failed, exiting");
+    }
+    destroy_and_exit_process(process, rc);
 
-    apr_pool_lock(pconf, 0);
-    destroy_and_exit_process(process, 0);
-
-    return 0; /* Termination 'ok' */
+    /* NOTREACHED */
+    return !OK;
 }
 
 #ifdef AP_USING_AUTOCONF

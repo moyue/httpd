@@ -81,18 +81,22 @@ files</description>
     accessed. Set to "<code>.</code>" to look in the same directory
     as the file:</p>
 
-    <example>MetaDir .</example>
+    <highlight language="config">
+MetaDir .
+    </highlight>
 
     <p>Or, to set it to a subdirectory of the directory containing the
     files:</p>
 
-    <example>MetaDir .meta</example>
+    <highlight language="config">
+MetaDir .meta
+    </highlight>
 </usage>
 </directivesynopsis>
 
 <directivesynopsis>
 <name>MetaSuffix</name>
-<description>File name suffix for the file containg CERN-style
+<description>File name suffix for the file containing CERN-style
 meta information</description>
 <syntax>MetaSuffix <var>suffix</var></syntax>
 <default>MetaSuffix .meta</default>
@@ -112,7 +116,9 @@ meta information</description>
     information.</p>
 
     <example><title>Example:</title>
+    <highlight language="config">
       MetaSuffix .meta
+     </highlight>
     </example>
 </usage>
 </directivesynopsis>

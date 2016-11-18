@@ -35,7 +35,7 @@ static int simple_run(apr_pool_t * pconf, apr_pool_t * plog, server_rec * s)
 
     if (ap_run_pre_mpm(s->process->pool, SB_SHARED) != OK) {
         sc->mpm_state = AP_MPMQ_STOPPING;
-        return DONE;
+        return !OK;
     }
 
     return simple_main_loop(sc);
@@ -115,7 +115,7 @@ simple_open_logs(apr_pool_t * p,
         ap_log_error(APLOG_MARK, APLOG_ALERT, 0,
                      s, APLOGNO(00256)
                      "simple_open_logs: no listening sockets available, shutting down");
-        return DONE;
+        return !OK;
     }
 
     return OK;

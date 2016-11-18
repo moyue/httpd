@@ -51,12 +51,14 @@ SSI pages</description>
 <usage>
     <p>Specifies one or more native system environment variables to make available
     as internal environment variables, which are available to Apache HTTP Server modules
-    as well as propogated to CGI scripts and SSI pages. Values come from the
+    as well as propagated to CGI scripts and SSI pages. Values come from the
     native OS environment of the shell which invoked the
     <program>httpd</program> process.</p>
 
     <example><title>Example</title>
+    <highlight language="config">
       PassEnv LD_LIBRARY_PATH
+      </highlight>
     </example>
 </usage>
 </directivesynopsis>
@@ -64,7 +66,7 @@ SSI pages</description>
 <directivesynopsis>
 <name>SetEnv</name>
 <description>Sets environment variables</description>
-<syntax>SetEnv <var>env-variable</var> <var>value</var></syntax>
+<syntax>SetEnv <var>env-variable</var> [<var>value</var>]</syntax>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>FileInfo</override>
@@ -74,8 +76,13 @@ SSI pages</description>
     HTTP Server modules, and passed on to CGI scripts and SSI pages.</p>
 
     <example><title>Example</title>
+    <highlight language="config">
       SetEnv SPECIAL_PATH /foo/bin
+      </highlight>
     </example>
+
+    <p> If you omit the <var>value</var> argument, the variable is set to
+    an empty string.</p>
 
     <note><p>The internal environment variables set by this directive are set
     <em>after</em> most early request processing directives are run, such as access
@@ -83,7 +90,7 @@ SSI pages</description>
     setting is meant as input into this early phase of processing such as the
     <directive module="mod_rewrite">RewriteRule</directive> directive, you should
     instead set the environment variable with
-    <directive module="mod_setenvif"> SetEnvIf</directive>.</p>
+    <directive module="mod_setenvif">SetEnvIf</directive>.</p>
     </note>
 
 </usage>
@@ -104,10 +111,11 @@ SSI pages</description>
     on to CGI scripts and SSI pages.</p>
 
     <example><title>Example</title>
+    <highlight language="config">
       UnsetEnv LD_LIBRARY_PATH
+      </highlight>
     </example>
 </usage>
 </directivesynopsis>
 
 </modulesynopsis>
-

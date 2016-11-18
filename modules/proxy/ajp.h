@@ -60,6 +60,7 @@
 
 /* The following environment variables match mod_ssl! */
 #define AJP13_HTTPS_INDICATOR           "HTTPS"
+#define AJP13_SSL_PROTOCOL_INDICATOR    "SSL_PROTOCOL"
 #define AJP13_SSL_CLIENT_CERT_INDICATOR "SSL_CLIENT_CERT"
 #define AJP13_SSL_CIPHER_INDICATOR      "SSL_CIPHER"
 #define AJP13_SSL_SESSION_INDICATOR     "SSL_SESSION_ID"
@@ -100,8 +101,6 @@
 #define AJP_EBAD_MESSAGE        (APR_OS_START_USERERR + 8)
 /** Cant log via AJP14 */
 #define AJP_ELOGFAIL            (APR_OS_START_USERERR + 9)
-/** Bad request method */
-#define AJP_EBAD_METHOD         (APR_OS_START_USERERR + 10)
 
 
 /** A structure that represents ajp message */
@@ -382,7 +381,7 @@ apr_status_t ajp_msg_dump(apr_pool_t *pool, ajp_msg_t *msg, char *err,
 /**
  * Log an AJP message
  *
- * @param request   The current request
+ * @param r         The current request
  * @param msg       AJP Message to dump
  * @param err       error string to display
  * @return          APR_SUCCESS or error
@@ -413,11 +412,13 @@ apr_status_t ajp_ilink_receive(apr_socket_t *sock, ajp_msg_t *msg);
  * @param r         current request
  * @param buffsize  max size of the AJP packet.
  * @param uri       requested uri
+ * @param secret    authentication secret
  * @return          APR_SUCCESS or error
  */
 apr_status_t ajp_send_header(apr_socket_t *sock, request_rec *r,
                              apr_size_t buffsize,
-                             apr_uri_t *uri);
+                             apr_uri_t *uri,
+                             const char *secret);
 
 /**
  * Read the ajp message and return the type of the message.

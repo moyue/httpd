@@ -39,16 +39,14 @@ in order for it to rebuild correctly.
 
 
 <summary>
-<p>This module makes it easy to restrict what HTTP methods can
-used on an server. The most common configuration would be:</p>
+<p>This module makes it easy to restrict what HTTP methods can be
+used on a server. The most common configuration would be:</p>
 
-<example><title>Example</title>
-&lt;Location /&gt;<br />
-<indent>
-   AllowMethods GET POST OPTIONS<br />
-</indent>
+<highlight language="config">
+&lt;Location "/"&gt;
+   AllowMethods GET POST OPTIONS
 &lt;/Location&gt;
-</example>
+</highlight>
 
 </summary>
 
@@ -63,21 +61,19 @@ used on an server. The most common configuration would be:</p>
 
 <usage>
 
-<p>The HTTP-methods are case sensitive, and are generally as per
-RFC given in upper case. The GET and HEAD methods are treated as
-equivalent. The <code>reset</code> keyword can be used
+<p>The HTTP-methods are case sensitive and are generally, as per
+RFC, given in upper case. The GET and HEAD methods are treated as
+equivalent. The <code>reset</code> keyword can be used to
 turn off <module>mod_allowmethods</module> in a deeper nested context:</p>
 
-<example><title>Example</title>
-&lt;Location /svn&gt;<br />
-<indent>
-   AllowMethods reset<br />
-</indent>
+<highlight language="config">
+&lt;Location "/svn"&gt;
+   AllowMethods reset
 &lt;/Location&gt;
-</example>
+</highlight>
 
 <note><title>Caution</title>
-  <p>The TRACE method can not be denied by this module,
+  <p>The TRACE method cannot be denied by this module;
   use <directive module="core">TraceEnable</directive> instead.</p>
 </note>
 
@@ -88,4 +84,3 @@ kludgy implementation of <directive module="core">Limit</directive> and
 </directivesynopsis>
 
 </modulesynopsis>
-

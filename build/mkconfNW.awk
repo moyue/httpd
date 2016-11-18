@@ -14,8 +14,7 @@
 # limitations under the License.
 
 BEGIN {
-    
-    A["ServerRoot"] = "SYS:/"BDIR
+    A["ServerRoot"] = "\${SRVROOT}"
     A["Port"] = PORT
     A["SSLPort"] = SSLPORT
     A["cgidir"] = "cgi-bin"
@@ -27,18 +26,24 @@ BEGIN {
     A["runtimedir"] = "logs"
     A["errordir"] = "error"
     A["proxycachedir"] = "proxy"
+    A["davlockdb"] = "davlockdb"
 
     B["htdocsdir"] = A["ServerRoot"]"/"A["htdocsdir"]
     B["iconsdir"] = A["ServerRoot"]"/"A["iconsdir"]
     B["manualdir"] = A["ServerRoot"]"/"A["manualdir"]
     B["errordir"] = A["ServerRoot"]"/"A["errordir"]
     B["proxycachedir"] = A["ServerRoot"]"/"A["proxycachedir"]
+    B["davlockdb"] = A["ServerRoot"]"/"A["davlockdb"]
     B["cgidir"] = A["ServerRoot"]"/"A["cgidir"]
     B["logfiledir"] = A["logfiledir"]
     B["sysconfdir"] = A["sysconfdir"]
     B["runtimedir"] = A["runtimedir"]
 }
 
+/^ServerRoot / {
+    print "Define SRVROOT \"SYS:/" BDIR "\""
+    print ""
+}
 /@@LoadModule@@/ {
     print "#LoadModule access_compat_module modules/accesscompat.nlm"
     print "#LoadModule actions_module modules/actions.nlm"
@@ -92,6 +97,10 @@ BEGIN {
        print "#LoadModule socache_shmcb_module modules/socacheshmcb.nlm"
        print "#LoadModule ssl_module modules/mod_ssl.nlm"
     }
+    if (MODHTTP2) {
+       print "#LoadModule http2_module modules/mod_http2.nlm"
+       print "#LoadModule proxy_http2_module modules/proxyhttp2.nlm"
+    }
     print ""
     next
 }
@@ -143,7 +152,7 @@ match ($0,/^<IfModule cgid_module>$/) {
 }
 
 END {
-    if ((ARGV[1] ~ /httpd.conf.in/) && !BSDSKT) { 
+    if ((ARGV[1] ~ /httpd.conf.in/) && !BSDSKT) {
        print ""
        print "#"
        print "# SecureListen: Allows you to securely bind Apache to specific IP addresses "

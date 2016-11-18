@@ -23,14 +23,14 @@
 <manualpage metafile="thread_safety.xml.meta">
 <parentdocument href="./">Developer Documentation</parentdocument>
 
-<title>Apache 2.0 Thread Safety Issues</title>
+<title>Apache HTTP Server 2.x Thread Safety Issues</title>
 
 <summary>
-    <p>When using any of the threaded mpms in Apache 2.0 it is important
+    <p>When using any of the threaded mpms in the Apache HTTP Server 2.x it is important
     that every function called from Apache be thread safe.  When linking in 3rd
     party extensions it can be difficult to determine whether the resulting
     server will be thread safe.  Casual testing generally won't tell you this
-    either as thread safety problems can lead to subtle race conditons that
+    either as thread safety problems can lead to subtle race conditions that
     may only show up in certain conditions under heavy load.</p>
 </summary>
 
@@ -93,7 +93,7 @@
     time with your delimiter which it then remembers and on each subsequent
     call it returns the next token.  Obviously if multiple threads are
     calling it you will have a problem.  Most systems have a reentrant version
-    of of the function called <code>strtok_r()</code> where you pass in an
+    of the function called <code>strtok_r()</code> where you pass in an
     extra argument which contains an allocated <code>char *</code> which the
     function will use instead of its own static storage for maintaining
     the tokenizing state. If you are using <a href="http://apr.apache.org/"

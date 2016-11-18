@@ -60,6 +60,52 @@ char *ssl_util_vhostid(apr_pool_t *p, server_rec *s)
     return id;
 }
 
+/*
+ * Return TRUE iff the given servername matches the server record when
+ * selecting virtual hosts.
+ */
+BOOL ssl_util_vhost_matches(const char *servername, server_rec *s)
+{
+    apr_array_header_t *names;
+    int i;
+    
+    /* check ServerName */
+    if (!strcasecmp(servername, s->server_hostname)) {
+        return TRUE;
+    }
+    
+    /*
+     * if not matched yet, check ServerAlias entries
+     * (adapted from vhost.c:matches_aliases())
+     */
+    names = s->names;
+    if (names) {
+        char **name = (char **)names->elts;
+        for (i = 0; i < names->nelts; ++i) {
+            if (!name[i])
+                continue;
+            if (!strcasecmp(servername, name[i])) {
+                return TRUE;
+            }
+        }
+    }
+    
+    /* if still no match, check ServerAlias entries with wildcards */
+    names = s->wild_names;
+    if (names) {
+        char **name = (char **)names->elts;
+        for (i = 0; i < names->nelts; ++i) {
+            if (!name[i])
+                continue;
+            if (!ap_strcasecmp_match(servername, name[i])) {
+                return TRUE;
+            }
+        }
+    }
+    
+    return FALSE;
+}
+
 apr_file_t *ssl_util_ppopen(server_rec *s, apr_pool_t *p, const char *cmd,
                             const char * const *argv)
 {
@@ -76,8 +122,7 @@ apr_file_t *ssl_util_ppopen(server_rec *s, apr_pool_t *p, const char *cmd,
         return NULL;
     if (apr_procattr_cmdtype_set(procattr, APR_PROGRAM) != APR_SUCCESS)
         return NULL;
-    if ((proc = (apr_proc_t *)apr_pcalloc(p, sizeof(apr_proc_t))) == NULL)
-        return NULL;
+    proc = apr_pcalloc(p, sizeof(apr_proc_t));
     if (apr_proc_create(proc, cmd, argv, NULL, procattr, p) != APR_SUCCESS)
         return NULL;
     return proc->out;
@@ -136,61 +181,8 @@ BOOL ssl_util_path_check(ssl_pathcheck_t pcm, const char *path, apr_pool_t *p)
     return TRUE;
 }
 
-ssl_algo_t ssl_util_algotypeof(X509 *pCert, EVP_PKEY *pKey)
-{
-    ssl_algo_t t;
-    EVP_PKEY *pFreeKey = NULL;
-
-    t = SSL_ALGO_UNKNOWN;
-    if (pCert != NULL)
-        pFreeKey = pKey = X509_get_pubkey(pCert);
-    if (pKey != NULL) {
-        switch (EVP_PKEY_type(pKey->type)) {
-            case EVP_PKEY_RSA:
-                t = SSL_ALGO_RSA;
-                break;
-            case EVP_PKEY_DSA:
-                t = SSL_ALGO_DSA;
-                break;
-#ifndef OPENSSL_NO_EC
-            case EVP_PKEY_EC:
-                t = SSL_ALGO_ECC;
-                break;
-#endif
-            default:
-                break;
-        }
-    }
-    if (pFreeKey != NULL)
-        EVP_PKEY_free(pFreeKey);
-    return t;
-}
-
-char *ssl_util_algotypestr(ssl_algo_t t)
-{
-    char *cp;
-
-    cp = "UNKNOWN";
-    switch (t) {
-        case SSL_ALGO_RSA:
-            cp = "RSA";
-            break;
-        case SSL_ALGO_DSA:
-            cp = "DSA";
-            break;
-#ifndef OPENSSL_NO_EC
-        case SSL_ALGO_ECC:
-            cp = "ECC";
-            break;
-#endif
-        default:
-            break;
-    }
-    return cp;
-}
-
 /*
- * certain key and cert data needs to survive restarts,
+ * certain key data needs to survive restarts,
  * which are stored in the user data table of s->process->pool.
  * to prevent "leaking" of this data, we use malloc/free
  * rather than apr_palloc and these wrappers to help make sure
@@ -254,82 +246,8 @@ void ssl_asn1_table_unset(apr_hash_t *table,
     apr_hash_set(table, key, klen, NULL);
 }
 
-#ifndef OPENSSL_NO_EC
-static const char *ssl_asn1_key_types[] = {"RSA", "DSA", "ECC"};
-#else
-static const char *ssl_asn1_key_types[] = {"RSA", "DSA"};
-#endif
-
-const char *ssl_asn1_keystr(int keytype)
-{
-    if (keytype >= SSL_AIDX_MAX) {
-        return NULL;
-    }
-
-    return ssl_asn1_key_types[keytype];
-}
-
-const char *ssl_asn1_table_keyfmt(apr_pool_t *p,
-                                  const char *id,
-                                  int keytype)
-{
-    const char *keystr = ssl_asn1_keystr(keytype);
-
-    return apr_pstrcat(p, id, ":", keystr, NULL);
-}
-
-STACK_OF(X509) *ssl_read_pkcs7(server_rec *s, const char *pkcs7)
-{
-    PKCS7 *p7;
-    STACK_OF(X509) *certs = NULL;
-    FILE *f;
-
-    f = fopen(pkcs7, "r");
-    if (!f) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(02212) "Can't open %s", pkcs7);
-        ssl_die();
-    }
-
-    p7 = PEM_read_PKCS7(f, NULL, NULL, NULL);
-    if (!p7) {
-        ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(02274)
-                     "Can't read PKCS7 object %s", pkcs7);
-        ssl_log_ssl_error(SSLLOG_MARK, APLOG_CRIT, s);
-        exit(1);
-    }
-
-    switch (OBJ_obj2nid(p7->type)) {
-    case NID_pkcs7_signed:
-        certs = p7->d.sign->cert;
-        p7->d.sign->cert = NULL;
-        PKCS7_free(p7);
-        break;
-
-    case NID_pkcs7_signedAndEnveloped:
-        certs = p7->d.signed_and_enveloped->cert;
-        p7->d.signed_and_enveloped->cert = NULL;
-        PKCS7_free(p7);
-        break;
-
-    default:
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(02213)
-                     "Don't understand PKCS7 file %s", pkcs7);
-        ssl_die();
-    }
-
-    if (!certs) {
-        ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(02214)
-                     "No certificates in %s", pkcs7);
-        ssl_die();
-    }
-
-    fclose(f);
-
-    return certs;
-}
-
-
 #if APR_HAS_THREADS
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 /*
  * To ensure thread-safetyness in OpenSSL - work in progress
  */
@@ -376,24 +294,11 @@ static struct CRYPTO_dynlock_value *ssl_dyn_create_function(const char *file,
      * allocated memory from a pool, create a subpool that we can blow
      * away in the destruction callback.
      */
-    rv = apr_pool_create(&p, dynlockpool);
-    if (rv != APR_SUCCESS) {
-        ap_log_perror(file, line, APLOG_MODULE_INDEX, APLOG_ERR, rv, dynlockpool,
-                      APLOGNO(02183) "Failed to create subpool for dynamic lock");
-        return NULL;
-    }
-
+    apr_pool_create(&p, dynlockpool);
     ap_log_perror(file, line, APLOG_MODULE_INDEX, APLOG_TRACE1, 0, p,
                   "Creating dynamic lock");
 
-    value = (struct CRYPTO_dynlock_value *)apr_palloc(p,
-                                                      sizeof(struct CRYPTO_dynlock_value));
-    if (!value) {
-        ap_log_perror(file, line, APLOG_MODULE_INDEX, APLOG_ERR, 0, p,
-                      APLOGNO(02185) "Failed to allocate dynamic lock structure");
-        return NULL;
-    }
-
+    value = apr_palloc(p, sizeof(struct CRYPTO_dynlock_value));
     value->pool = p;
     /* Keep our own copy of the place from which we were created,
        using our own pool. */
@@ -458,6 +363,28 @@ static void ssl_dyn_destroy_function(struct CRYPTO_dynlock_value *l,
     apr_pool_destroy(l->pool);
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+
+static void ssl_util_thr_id(CRYPTO_THREADID *id)
+{
+    /* OpenSSL needs this to return an unsigned long.  On OS/390, the pthread
+     * id is a structure twice that big.  Use the TCB pointer instead as a
+     * unique unsigned long.
+     */
+#ifdef __MVS__
+    struct PSA {
+        char unmapped[540]; /* PSATOLD is at offset 540 in the PSA */
+        unsigned long PSATOLD;
+    } *psaptr = 0; /* PSA is at address 0 */
+
+    CRYPTO_THREADID_set_numeric(id, psaptr->PSATOLD);
+#else
+    CRYPTO_THREADID_set_numeric(id, (unsigned long) apr_os_thread_current());
+#endif
+}
+
+#else
+
 static unsigned long ssl_util_thr_id(void)
 {
     /* OpenSSL needs this to return an unsigned long.  On OS/390, the pthread
@@ -476,10 +403,16 @@ static unsigned long ssl_util_thr_id(void)
 #endif
 }
 
+#endif
+
 static apr_status_t ssl_util_thread_cleanup(void *data)
 {
     CRYPTO_set_locking_callback(NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    CRYPTO_THREADID_set_callback(NULL);
+#else
     CRYPTO_set_id_callback(NULL);
+#endif
 
     CRYPTO_set_dynlock_create_callback(NULL);
     CRYPTO_set_dynlock_lock_callback(NULL);
@@ -503,7 +436,11 @@ void ssl_util_thread_setup(apr_pool_t *p)
         apr_thread_mutex_create(&(lock_cs[i]), APR_THREAD_MUTEX_DEFAULT, p);
     }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    CRYPTO_THREADID_set_callback(ssl_util_thr_id);
+#else
     CRYPTO_set_id_callback(ssl_util_thr_id);
+#endif
 
     CRYPTO_set_locking_callback(ssl_util_thr_lock);
 
@@ -518,4 +455,5 @@ void ssl_util_thread_setup(apr_pool_t *p)
     apr_pool_cleanup_register(p, NULL, ssl_util_thread_cleanup,
                                        apr_pool_cleanup_null);
 }
-#endif
+#endif /* #if OPENSSL_VERSION_NUMBER < 0x10100000L */
+#endif /* #if APR_HAS_THREADS */

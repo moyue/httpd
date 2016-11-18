@@ -7,7 +7,7 @@ SUBDIRS = mpm
 
 LTLIBRARY_NAME    = libmain.la
 LTLIBRARY_SOURCES = \
-	config.c log.c main.c vhost.c util.c \
+	config.c log.c main.c vhost.c util.c util_fcgi.c \
 	util_script.c util_md5.c util_cfgtree.c util_ebcdic.c util_time.c \
 	connection.c listen.c util_mutex.c mpm_common.c mpm_unix.c \
 	util_charset.c util_cookies.c util_debug.c util_xml.c \
@@ -27,9 +27,14 @@ TARGETS = delete-exports $(LTLIBRARY_NAME) $(CORE_IMPLIB_FILE) export_vars.h htt
 include $(top_builddir)/build/rules.mk
 include $(top_srcdir)/build/library.mk
 
+ifdef CC_FOR_BUILD
+gen_test_char: gen_test_char.c
+	$(CC_FOR_BUILD) $(CFLAGS_FOR_BUILD) -DCROSS_COMPILE -o $@ $<
+else
 gen_test_char_OBJECTS = gen_test_char.lo
 gen_test_char: $(gen_test_char_OBJECTS)
 	$(LINK) $(EXTRA_LDFLAGS) $(gen_test_char_OBJECTS) $(EXTRA_LIBS)
+endif
 
 test_char.h: gen_test_char
 	./gen_test_char > test_char.h
@@ -65,7 +70,7 @@ export_files:
 	  for dir in $(EXPORT_DIRS_APR); do \
 	      ls $$dir/ap[ru].h $$dir/ap[ru]_*.h 2>/dev/null; \
 	  done; \
-	) | sort -u > $@
+	) | sed -e s,//,/,g | sort -u > $@
 
 exports.c: export_files
 	$(AWK) -f $(top_srcdir)/build/make_exports.awk `cat $?` > $@
@@ -96,8 +101,10 @@ util_expr_scan.c util_expr_parse.c util_expr_parse.h: util_expr_scan.l util_expr
 	    -o $(builddir)/util_expr_parse.c $(srcdir)/util_expr_parse.y
 	flex -Pap_expr_yy -o $(builddir)/util_expr_scan.c $(srcdir)/util_expr_scan.l
 	set -e ; \
+	builddir_uc=$$(echo "$(builddir)"|tr a-z/.- A-Z___ ) ; \
 	for f in util_expr_scan.c util_expr_parse.c util_expr_parse.h ; do \
-		sed -e "s|\"$(builddir)/|\"|g" < $(builddir)/$$f > \
+		sed -e "s|\"$(builddir)/|\"|g" -e "s|$$builddir_uc||g" \
+			< $(builddir)/$$f > \
 			$(builddir)/$$f.$$$$ && \
 		mv $(builddir)/$$f.$$$$ $(builddir)/$$f ; \
 	done

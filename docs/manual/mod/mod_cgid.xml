@@ -77,7 +77,7 @@
 <description>The filename prefix of the socket to use for communication with
 the cgi daemon</description>
 <syntax>ScriptSock <var>file-path</var></syntax>
-<default>ScriptSock logs/cgisock</default>
+<default>ScriptSock cgisock</default>
 <contextlist><context>server config</context></contextlist>
 
 <usage>
@@ -89,12 +89,44 @@ the cgi daemon</description>
     scripts, it is important that no other user has permission to
     write in the directory where the socket is located.</p>
 
+    <p>If <var>file-path</var> is not an absolute path, the location specified
+    will be relative to the value of
+    <directive module="core">DefaultRuntimeDir</directive>.</p>
+
     <example><title>Example</title>
+    <highlight language="config">
       ScriptSock /var/run/cgid.sock
+    </highlight>
+    </example>
+
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>CGIDScriptTimeout</name>
+<description>The length of time to wait for more output from the
+CGI program</description>
+<syntax>CGIDScriptTimeout <var>time</var>[s|ms]</syntax>
+<default>value of <directive module="core">Timeout</directive> directive when
+unset</default>
+<contextlist><context>server config</context>
+<context>virtual host</context><context>directory</context>
+<context>.htaccess</context></contextlist>
+<compatibility>CGIDScriptTimeout defaults to zero in releases 2.4 and earlier
+</compatibility>
+
+<usage>
+    <p>This directive limits the length of time to wait for more output from
+    the CGI program.  If the time is exceeded, the request and CGI are
+    terminated.</p>
+
+    <example><title>Example</title>
+    <highlight language="config">
+      CGIDScriptTimeout 20
+    </highlight>
     </example>
 
 </usage>
 </directivesynopsis>
 
 </modulesynopsis>
-

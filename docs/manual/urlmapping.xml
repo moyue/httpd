@@ -36,6 +36,7 @@
 <modulelist>
 <module>mod_actions</module>
 <module>mod_alias</module>
+<module>mod_autoindex</module>
 <module>mod_dir</module>
 <module>mod_imagemap</module>
 <module>mod_negotiation</module>
@@ -49,6 +50,7 @@
 <directive module="mod_alias">Alias</directive>
 <directive module="mod_alias">AliasMatch</directive>
 <directive module="mod_speling">CheckSpelling</directive>
+<directive module="mod_dir">DirectoryIndex</directive>
 <directive module="core">DocumentRoot</directive>
 <directive module="core">ErrorDocument</directive>
 <directive module="core">Options</directive>
@@ -84,6 +86,25 @@
     in the file <code>/var/www/html/fish/guppies.html</code> being
     served to the requesting client.</p>
 
+    <p>If a directory is requested (i.e. a path ending with
+    <code>/</code>), the file served from that directory is defined by
+    the <directive module="mod_dir">DirectoryIndex</directive> directive.
+    For example, if <code>DocumentRoot</code> were set as above, and
+    you were to set:</p>
+
+    <example>DirectoryIndex index.html index.php</example>
+
+    <p>Then a request for <code>http://www.example.com/fish/</code> will
+    cause httpd to attempt to serve the file
+    <code>/var/www/html/fish/index.html</code>. In the event that
+    that file does not exist, it will next attempt to serve the file
+    <code>/var/www/html/fish/index.php</code>.</p>
+
+    <p>If neither of these files existed, the next step is to
+    attempt to provide a directory index, if
+    <module>mod_autoindex</module> is loaded and configured to permit
+    that.</p>
+
     <p>httpd is also capable of <a href="vhosts/">Virtual
     Hosting</a>, where the server receives requests for more than one
     host. In this case, a different <directive
@@ -118,7 +139,9 @@
     module="mod_alias">Alias</directive> directive will map any part
     of the filesystem into the web space. For example, with</p>
 
-<example>Alias /docs /var/web</example>
+    <highlight language="config">
+Alias "/docs" "/var/web"
+    </highlight>
 
     <p>the URL <code>http://www.example.com/docs/dir/file.html</code>
     will be served from <code>/var/web/dir/file.html</code>. The
@@ -134,8 +157,9 @@
     expression</glossary> based matching and substitution. For
     example,</p>
 
-<example>ScriptAliasMatch ^/~([a-zA-Z0-9]+)/cgi-bin/(.+)
-      /home/$1/cgi-bin/$2</example>
+    <highlight language="config">
+ScriptAliasMatch "^/~([a-zA-Z0-9]+)/cgi-bin/(.+)"   "/home/$1/cgi-bin/$2"
+    </highlight>
 
     <p>will map a request to
     <code>http://example.com/~user/cgi-bin/script.cgi</code> to the
@@ -181,8 +205,9 @@
     <code>/home/user/public_html/file.html</code>, use the following
     <code>AliasMatch</code> directive:</p>
 
-<example>AliasMatch ^/upages/([a-zA-Z0-9]+)(/(.*))?$
-      /home/$1/public_html/$3</example>
+    <highlight language="config">
+AliasMatch "^/upages/([a-zA-Z0-9]+)(/(.*))?$"   "/home/$1/public_html/$3"
+    </highlight>
 </section>
 
 <section id="redirect"><title>URL Redirection</title>
@@ -200,8 +225,9 @@
     to the new directory <code>/bar/</code>, you can instruct clients
     to request the content at the new location as follows:</p>
 
-<example>Redirect permanent /foo/
-      http://www.example.com/bar/</example>
+    <highlight language="config">
+Redirect permanent "/foo/"   "http://www.example.com/bar/"
+    </highlight>
 
     <p>This will redirect any URL-Path starting in
     <code>/foo/</code> to the same URL path on the
@@ -215,14 +241,16 @@
     for the site home page to a different site, but leave all other
     requests alone, use the following configuration:</p>
 
-<example>RedirectMatch permanent ^/$
-      http://www.example.com/startpage.html</example>
+    <highlight language="config">
+RedirectMatch permanent "^/$"    "http://www.example.com/startpage.html"
+    </highlight>
 
     <p>Alternatively, to temporarily redirect all pages on one site
     to a particular page on another site, use the following:</p>
 
-<example>RedirectMatch temp .*
-      http://othersite.example.com/startpage.html</example>
+    <highlight language="config">
+RedirectMatch temp ".*"  "http://othersite.example.com/startpage.html"
+    </highlight>
 </section>
 
 <section id="proxy"><title>Reverse Proxy</title>
@@ -240,12 +268,12 @@ the <code>/bar/</code> directory on <code>internal.example.com</code>
 and returns them to the client as if they were from the local
 server.</p>
 
-<example>
-ProxyPass /foo/ http://internal.example.com/bar/<br />
-ProxyPassReverse /foo/ http://internal.example.com/bar/<br />
-ProxyPassReverseCookieDomain internal.example.com public.example.com<br />
-ProxyPassReverseCookiePath /foo/ /bar/
-</example>
+<highlight language="config">
+ProxyPass        "/foo/" "http://internal.example.com/bar/"
+ProxyPassReverse "/foo/" "http://internal.example.com/bar/"
+ProxyPassReverseCookieDomain internal.example.com public.example.com
+ProxyPassReverseCookiePath "/foo/" "/bar/"
+</highlight>
 
 <p>The <directive module="mod_proxy">ProxyPass</directive> configures
 the server to fetch the appropriate documents, while the
@@ -264,13 +292,13 @@ breaking out of the proxy server and requesting directly from
 content) in a page as it is being served to the client using
 <module>mod_substitute</module>.</p>
 
-<example>
+<highlight language="config">
 Substitute s/internal\.example\.com/www.example.com/i
-</example>
+</highlight>
 
-<p>For more sophisticated rewriting of links in HTML and XHTML, the 
+<p>For more sophisticated rewriting of links in HTML and XHTML, the
 <module>mod_proxy_html</module> module is also available. It allows you
-to create maps of URLs that need to be rewritten, so that comples
+to create maps of URLs that need to be rewritten, so that complex
 proxying scenarios can be handled.</p>
 </section>
 
@@ -323,8 +351,8 @@ proxying scenarios can be handled.</p>
     <p><module>mod_dir</module> provides <directive module="mod_dir"
     >FallbackResource</directive>, which can be used to map virtual
     URIs to a real resource, which then serves them. This is a very
-    useful replace to <module>mod_rewrite</module> when implementing
-    a 'front controler'</p>
+    useful replacement for <module>mod_rewrite</module> when implementing
+    a 'front controller'</p>
 
     <p>If all attempts to locate the content fail, httpd returns
     an error page with HTTP status code 404 (file not found). The

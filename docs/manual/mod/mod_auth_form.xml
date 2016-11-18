@@ -74,14 +74,20 @@
       the user will be redirected to the form login page.</p>
 
       <example><title>Basic example</title>
-        AuthFormProvider file<br />
-        AuthUserFile conf/passwd<br />
-        AuthType form<br />
-        AuthName realm<br />
-        AuthFormLoginRequiredLocation http://example.com/login.html<br />
-        Session On<br />
-        SessionCookieName session path=/<br />
-        SessionCryptoPassphrase secret<br />
+      <highlight language="config">
+&lt;Location "/admin"&gt;
+    AuthFormProvider file
+    AuthUserFile "conf/passwd"
+    AuthType form
+    AuthName "/admin"
+    AuthFormLoginRequiredLocation "http://example.com/login.html"
+
+    Session On
+    SessionCookieName session path=/
+
+    Require valid-user
+&lt;/Location&gt;
+        </highlight>
       </example>
 
       <p>The directive <directive module="mod_authn_core">AuthType</directive> will enable
@@ -90,12 +96,16 @@
       <directive module="mod_authn_file">AuthUserFile</directive> specify that usernames
       and passwords should be checked against the chosen file.</p>
 
-      <p>The directives <directive module="mod_session">Session</directive>,
-      <directive module="mod_session_cookie">SessionCookieName</directive> and
-      <directive module="mod_session_crypto">SessionCryptoPassphrase</directive> create an
-      encrypted session stored within an HTTP cookie on the browser. For more information
+      <p>The directives <directive module="mod_session">Session</directive> and
+      <directive module="mod_session_cookie">SessionCookieName</directive> 
+      session stored within an HTTP cookie on the browser. For more information
       on the different options for configuring a session, read the documentation for
       <module>mod_session</module>.</p>
+
+      <p>You can optionally add a 
+      <directive module="mod_session_crypto">SessionCryptoPassphrase</directive> to 
+      create an encrypted session cookie. This required the additional
+      module <module>mod_session_crypto</module> be loaded.</p>
 
       <p>In the simple example above, a URL has been protected by
       <module>mod_auth_form</module>, but the user has yet to be given an opportunity to
@@ -116,11 +126,13 @@
       provide their usename and password.</p>
 
       <example><title>Example login form</title>
-        &lt;form method="POST" action="/dologin.html"&gt;<br />
-        Username: &lt;input type="text" name="httpd_username" value="" /&gt;<br />
-        Password: &lt;input type="password" name="httpd_password" value="" /&gt;<br />
-        &lt;input type="submit" name="login" value="Login" /&gt;<br />
-        &lt;/form&gt;<br />
+        <highlight language="html">
+&lt;form method="POST" action="/dologin.html"&gt;
+  Username: &lt;input type="text" name="httpd_username" value="" /&gt;
+  Password: &lt;input type="password" name="httpd_password" value="" /&gt;
+  &lt;input type="submit" name="login" value="Login" /&gt;
+&lt;/form&gt;
+        </highlight>
       </example>
 
       <p>The part that does the actual login is handled by the <var>form-login-handler</var>.
@@ -128,20 +140,19 @@
       Apache httpd as follows:</p>
 
       <example><title>Form login handler example</title>
-        &lt;Location /dologin.html&gt;
-        <indent>
-          SetHandler form-login-handler<br />
-          AuthFormLoginRequiredLocation http://example.com/login.html<br />
-          AuthFormLoginSuccessLocation http://example.com/success.html<br />
-          AuthFormProvider file<br />
-          AuthUserFile conf/passwd<br />
-          AuthType form<br />
-          AuthName realm<br />
-          Session On<br />
-          SessionCookieName session path=/<br />
-          SessionCryptoPassphrase secret<br />
-        </indent>
-        &lt;/Location&gt;
+      <highlight language="config">
+&lt;Location "/dologin.html"&gt;
+    SetHandler form-login-handler
+    AuthFormLoginRequiredLocation "http://example.com/login.html"
+    AuthFormLoginSuccessLocation "http://example.com/admin/index.html"
+    AuthFormProvider file
+    AuthUserFile "conf/passwd"
+    AuthType form
+    AuthName /admin
+    Session On
+    SessionCookieName session path=/
+&lt;/Location&gt;
+        </highlight>
       </example>
 
       <p>The URLs specified by the
@@ -155,14 +166,14 @@
       reused for different areas of a website.</p>
 
       <example><title>Example login form with location</title>
-        &lt;form method="POST" action="/dologin.html"&gt;<br />
-        <indent>
-          Username: &lt;input type="text" name="httpd_username" value="" /&gt;<br />
-          Password: &lt;input type="password" name="httpd_password" value="" /&gt;<br />
-          &lt;input type="submit" name="login" value="Login" /&gt;<br />
-          &lt;input type="hidden" name="httpd_location" value="http://example.com/success.html" /&gt;<br />
-        </indent>
-        &lt;/form&gt;<br />
+        <highlight language="html">
+&lt;form method="POST" action="/dologin.html"&gt;
+  Username: &lt;input type="text" name="httpd_username" value="" /&gt;
+  Password: &lt;input type="password" name="httpd_password" value="" /&gt;
+  &lt;input type="submit" name="login" value="Login" /&gt;
+  &lt;input type="hidden" name="httpd_location" value="http://example.com/success.html" /&gt;
+&lt;/form&gt;
+        </highlight>
       </example>
 
     </section>
@@ -195,15 +206,16 @@
       containing the login form, as follows:</p>
 
       <example><title>Basic inline example</title>
-        AuthFormProvider file<br />
-        <strong>ErrorDocument 401 /login.shtml</strong><br />
-        AuthUserFile conf/passwd<br />
-        AuthType form<br />
-        AuthName realm<br />
-        AuthFormLoginRequiredLocation http://example.com/login.html<br />
-        Session On<br />
-        SessionCookieName session path=/<br />
-        SessionCryptoPassphrase secret<br />
+      <highlight language="config">
+AuthFormProvider file
+ErrorDocument 401 "/login.shtml"
+AuthUserFile "conf/passwd"
+AuthType form
+AuthName /admin
+AuthFormLoginRequiredLocation "http://example.com/login.html"
+Session On
+SessionCookieName session path=/
+        </highlight>
       </example>
 
       <p>The error document page should contain a login form with an empty action property,
@@ -212,13 +224,13 @@
       URL is.</p>
 
       <example><title>Example inline login form</title>
-        &lt;form method="POST" <strong>action=""</strong>&gt;<br />
-        <indent>
-          Username: &lt;input type="text" name="httpd_username" value="" /&gt;<br />
-          Password: &lt;input type="password" name="httpd_password" value="" /&gt;<br />
-          &lt;input type="submit" name="login" value="Login" /&gt;<br />
-        </indent>
-        &lt;/form&gt;<br />
+<highlight language="html">
+&lt;form method="POST" <strong>action=""</strong>&gt;
+  Username: &lt;input type="text" name="httpd_username" value="" /&gt;
+  Password: &lt;input type="password" name="httpd_password" value="" /&gt;
+  &lt;input type="submit" name="login" value="Login" /&gt;
+&lt;/form&gt;
+</highlight>
       </example>
 
       <p>When the end user has filled in their login details, the form will make
@@ -248,16 +260,16 @@
       per the example below.</p>
 
       <example><title>Example with body preservation</title>
-        &lt;form method="POST" action=""&gt;<br />
-        <indent>
-          Username: &lt;input type="text" name="httpd_username" value="" /&gt;<br />
-          Password: &lt;input type="password" name="httpd_password" value="" /&gt;<br />
-          &lt;input type="submit" name="login" value="Login" /&gt;<br />
-          <strong>&lt;input type="hidden" name="httpd_method" value="POST" /&gt;<br />
-          &lt;input type="hidden" name="httpd_mimetype" value="application/x-www-form-urlencoded" /&gt;<br />
-          &lt;input type="hidden" name="httpd_body" value="name1=value1&amp;name2=value2" /&gt;</strong><br />
-        </indent>
-        &lt;/form&gt;
+        <highlight language="html">
+&lt;form method="POST" action=""&gt;
+  Username: &lt;input type="text" name="httpd_username" value="" /&gt;
+  Password: &lt;input type="password" name="httpd_password" value="" /&gt;
+  &lt;input type="submit" name="login" value="Login" /&gt;
+  <br/>  <strong>&lt;input type="hidden" name="httpd_method" value="POST" /&gt;
+  &lt;input type="hidden" name="httpd_mimetype" value="application/x-www-form-urlencoded" /&gt;
+  &lt;input type="hidden" name="httpd_body" value="name1=value1&amp;name2=value2" /&gt;</strong><br/>
+&lt;/form&gt;
+        </highlight>
       </example>
 
       <p>How the method, mimetype and body of the original request are embedded within the
@@ -272,9 +284,11 @@
       technology.</p>
 
       <example><title>CGI example</title>
-        AuthFormProvider file<br />
-        <strong>ErrorDocument 401 /cgi-bin/login.cgi</strong><br />
-        ...<br />
+      <highlight language="config">
+        AuthFormProvider file
+        ErrorDocument 401 "/cgi-bin/login.cgi"
+        ...
+        </highlight>
       </example>
 
     </section>
@@ -293,12 +307,13 @@
       give the user the option to log in again.</p>
 
       <example><title>Basic logout example</title>
-        SetHandler form-logout-handler<br />
-        AuthName realm<br />
-        AuthFormLogoutLocation http://example.com/loggedout.html<br />
-        Session On<br />
-        SessionCookieName session path=/<br />
-        SessionCryptoPassphrase secret<br />
+      <highlight language="config">
+SetHandler form-logout-handler
+AuthName realm
+AuthFormLogoutLocation "http://example.com/loggedout.html"
+Session On
+SessionCookieName session path=/
+        </highlight>
       </example>
 
       <p>Note that logging a user out does not delete the session; it merely removes
@@ -310,12 +325,13 @@
       </p>
 
       <example><title>Basic session expiry example</title>
-        SetHandler form-logout-handler<br />
-        AuthFormLogoutLocation http://example.com/loggedout.html<br />
-        Session On<br />
-        SessionMaxAge 1<br />
-        SessionCookieName session path=/<br />
-        SessionCryptoPassphrase secret<br />
+      <highlight language="config">
+SetHandler form-logout-handler
+AuthFormLogoutLocation "http://example.com/loggedout.html"
+Session On
+SessionMaxAge 1
+SessionCookieName session path=/
+        </highlight>
       </example>
 
     </section>
@@ -345,17 +361,17 @@
     that the chosen provider module is present in the server.</p>
 
     <example><title>Example</title>
-      &lt;Location /secure&gt;<br />
-      <indent>
-        AuthType form<br />
-        AuthName "private area"<br />
-        AuthFormProvider  dbm<br />
-        AuthDBMType        SDBM<br />
-        AuthDBMUserFile    /www/etc/dbmpasswd<br />
-        Require            valid-user<br />
-        ...<br />
-      </indent>
-      &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/secure"&gt;
+    AuthType form
+    AuthName "private area"
+    AuthFormProvider  dbm
+    AuthDBMType        SDBM
+    AuthDBMUserFile    "/www/etc/dbmpasswd"
+    Require            valid-user
+    #...
+&lt;/Location&gt;
+      </highlight>
     </example>
 
     <p>Providers are implemented by <module>mod_authn_dbm</module>,
@@ -475,7 +491,7 @@ lower level modules</description>
 <usage>
     <p>The <directive module="mod_auth_form">AuthFormMethod</directive> directive specifies
     the name of an HTML field which, if present, will contain the
-    mimetype of the request to to submit should login be successful.</p>
+    mimetype of the request to submit should login be successful.</p>
 
     <p>By populating the form with fields described by
     <directive module="mod_auth_form">AuthFormMethod</directive>,
@@ -512,7 +528,7 @@ lower level modules</description>
 <directivesynopsis>
 <name>AuthFormSize</name>
 <description>The largest size of the form in bytes that will be parsed for the login details</description>
-<syntax>AuthFormBody <var>size</var></syntax>
+<syntax>AuthFormSize <var>size</var></syntax>
 <default>8192</default>
 <contextlist><context>directory</context>
 </contextlist>
@@ -542,13 +558,15 @@ lower level modules</description>
 <default>none</default>
 <contextlist><context>directory</context>
 </contextlist>
-<compatibility>Available in Apache HTTP Server 2.3.0 and later</compatibility>
+<compatibility>Available in Apache HTTP Server 2.3.0 and later. The use of the expression
+parser has been added in 2.4.4.</compatibility>
 
 <usage>
     <p>The <directive module="mod_auth_form">AuthFormLoginRequiredLocation</directive> directive
-    specifies the URL to redirect to should the user not be authorised to view a page. By default,
-    if a user is not authorised to view a page, the HTTP response code <code>HTTP_UNAUTHORIZED</code>
-    will be returned with the page specified by the
+    specifies the URL to redirect to should the user not be authorised to view a page. The value
+    is parsed using the <a href="../expr.html">ap_expr</a> parser before being sent to the client.
+    By default, if a user is not authorised to view a page, the HTTP response code
+    <code>HTTP_UNAUTHORIZED</code> will be returned with the page specified by the
     <directive module="core">ErrorDocument</directive> directive. This directive overrides this
     default.</p>
 
@@ -564,13 +582,15 @@ lower level modules</description>
 <default>none</default>
 <contextlist><context>directory</context>
 </contextlist>
-<compatibility>Available in Apache HTTP Server 2.3.0 and later</compatibility>
+<compatibility>Available in Apache HTTP Server 2.3.0 and later. The use of the expression
+parser has been added in 2.4.4.</compatibility>
 
 <usage>
     <p>The <directive module="mod_auth_form">AuthFormLoginSuccessLocation</directive> directive
-    specifies the URL to redirect to should the user have logged in successfully. This directive
-    can be overridden if a form field has been defined containing another URL using the
-    <directive module="mod_auth_form">AuthFormLocation</directive> directive.</p>
+    specifies the URL to redirect to should the user have logged in successfully. The value is
+    parsed using the <a href="../expr.html">ap_expr</a> parser before being sent to the client.
+    This directive can be overridden if a form field has been defined containing another URL
+    using the <directive module="mod_auth_form">AuthFormLocation</directive> directive.</p>
 
     <p>Use this directive if you have a dedicated login URL, and you have not embedded the
     destination page in the login form.</p>
@@ -604,24 +624,27 @@ lower level modules</description>
 <default>none</default>
 <contextlist><context>directory</context>
 </contextlist>
-<compatibility>Available in Apache HTTP Server 2.3.0 and later</compatibility>
+<compatibility>Available in Apache HTTP Server 2.3.0 and later. The use of the expression
+parser has been added in 2.4.4.</compatibility>
 
 <usage>
     <p>The <directive module="mod_auth_form">AuthFormLogoutLocation</directive> directive
-    specifies the URL of a page on the server to redirect to should the user attempt to log out.</p>
+    specifies the URL of a page on the server to redirect to should the user attempt to log
+    out. The value is parsed using the <a href="../expr.html">ap_expr</a> parser before
+    being sent to the client.</p>
 
     <p>When a URI is accessed that is served by the handler <code>form-logout-handler</code>,
     the page specified by this directive will be shown to the end user. For example:</p>
 
     <example><title>Example</title>
-      &lt;Location /logout&gt;<br />
-      <indent>
-        SetHandler form-logout-handler<br />
-        AuthFormLogoutLocation http://example.com/loggedout.html<br />
-        Session on<br />
-        ...
-      </indent>
-      &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/logout"&gt;
+    SetHandler form-logout-handler
+    AuthFormLogoutLocation "http://example.com/loggedout.html"
+    Session on
+    #...
+&lt;/Location&gt;
+      </highlight>
     </example>
 
     <p>An attempt to access the URI <var>/logout/</var> will result in the user being logged
@@ -645,7 +668,7 @@ lower level modules</description>
     <p>The <directive module="mod_auth_form">AuthFormDisableNoStore</directive> flag
     disables the sending of a <code>Cache-Control no-store</code> header with the
     error 401 page returned when the user is not yet logged in. The purpose of the header
-    is to make it difficult for an ecmascript application to attempt to resubmit the
+    is to make it difficult for an <code>ecmascript</code> application to attempt to resubmit the
     login form, and reveal the username and password to the backend application. Disable
     at your own risk.</p>
 

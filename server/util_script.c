@@ -73,9 +73,10 @@ static char *http2env(request_rec *r, const char *w)
             *cp++ = '_';
         }
         else {
-            ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                          "Not exporting header with invalid name as envvar: %s",
-                          ap_escape_logitem(r->pool, w));
+            if (APLOGrtrace1(r))
+                ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                            "Not exporting header with invalid name as envvar: %s",
+                            ap_escape_logitem(r->pool, w));
             return NULL;
         }
     }
@@ -122,7 +123,11 @@ AP_DECLARE(char **) ap_create_environment(apr_pool_t *p, apr_table_t *t)
             *whack++ = '_';
         }
         while (*whack != '=') {
-            if (!apr_isalnum(*whack) && *whack != '_') {
+#ifdef WIN32
+            if (!apr_isalnum(*whack) && *whack != '(' && *whack != ')') {
+#else
+            if (!apr_isalnum(*whack)) {
+#endif
                 *whack = '_';
             }
             ++whack;
@@ -139,6 +144,8 @@ AP_DECLARE(void) ap_add_common_vars(request_rec *r)
     apr_table_t *e;
     server_rec *s = r->server;
     conn_rec *c = r->connection;
+    core_dir_config *conf =
+        (core_dir_config *)ap_get_core_module_config(r->per_dir_config);
     const char *env_temp;
     const apr_array_header_t *hdrs_arr = apr_table_elts(r->headers_in);
     const apr_table_entry_t *hdrs = (const apr_table_entry_t *) hdrs_arr->elts;
@@ -173,21 +180,31 @@ AP_DECLARE(void) ap_add_common_vars(request_rec *r)
          * for no particular reason.
          */
 
-        if (!strcasecmp(hdrs[i].key, "Content-type")) {
+        if (!ap_cstr_casecmp(hdrs[i].key, "Content-type")) {
             apr_table_addn(e, "CONTENT_TYPE", hdrs[i].val);
         }
-        else if (!strcasecmp(hdrs[i].key, "Content-length")) {
+        else if (!ap_cstr_casecmp(hdrs[i].key, "Content-length")) {
             apr_table_addn(e, "CONTENT_LENGTH", hdrs[i].val);
         }
+        /* HTTP_PROXY collides with a popular envvar used to configure
+         * proxies, don't let clients set/override it.  But, if you must...
+         */
+#ifndef SECURITY_HOLE_PASS_PROXY
+        else if (!ap_cstr_casecmp(hdrs[i].key, "Proxy")) {
+            ;
+        }
+#endif
         /*
          * You really don't want to disable this check, since it leaves you
          * wide open to CGIs stealing passwords and people viewing them
          * in the environment with "ps -e".  But, if you must...
          */
 #ifndef SECURITY_HOLE_PASS_AUTHORIZATION
-        else if (!strcasecmp(hdrs[i].key, "Authorization")
-                 || !strcasecmp(hdrs[i].key, "Proxy-Authorization")) {
-            continue;
+        else if (!ap_cstr_casecmp(hdrs[i].key, "Authorization")
+                 || !ap_cstr_casecmp(hdrs[i].key, "Proxy-Authorization")) {
+            if (conf->cgi_pass_auth == AP_CGI_PASS_AUTH_ON) {
+                add_unless_null(e, http2env(r, hdrs[i].key), hdrs[i].val);
+            }
         }
 #endif
         else
@@ -235,7 +252,7 @@ AP_DECLARE(void) ap_add_common_vars(request_rec *r)
     apr_table_addn(e, "SERVER_PORT",
                   apr_psprintf(r->pool, "%u", ap_get_server_port(r)));
     add_unless_null(e, "REMOTE_HOST",
-                    ap_get_remote_host(c, r->per_dir_config, REMOTE_HOST, NULL));
+                    ap_get_useragent_host(r, REMOTE_HOST, NULL));
     apr_table_addn(e, "REMOTE_ADDR", r->useragent_ip);
     apr_table_addn(e, "DOCUMENT_ROOT", ap_document_root(r));    /* Apache */
     apr_table_setn(e, "REQUEST_SCHEME", ap_http_scheme(r));
@@ -277,12 +294,30 @@ AP_DECLARE(void) ap_add_common_vars(request_rec *r)
     /* Apache custom error responses. If we have redirected set two new vars */
 
     if (r->prev) {
+        if (conf->qualify_redirect_url != AP_CORE_CONFIG_ON) { 
+            add_unless_null(e, "REDIRECT_URL", r->prev->uri);
+        }
+        else { 
+            /* PR#57785: reconstruct full URL here */
+            apr_uri_t *uri = &r->prev->parsed_uri;
+            if (!uri->scheme) {
+                uri->scheme = (char*)ap_http_scheme(r->prev);
+            }
+            if (!uri->port) {
+                uri->port = ap_get_server_port(r->prev);
+                uri->port_str = apr_psprintf(r->pool, "%u", uri->port);
+            }
+            if (!uri->hostname) {
+                uri->hostname = (char*)ap_get_server_name_for_url(r->prev);
+            }
+            add_unless_null(e, "REDIRECT_URL",
+                            apr_uri_unparse(r->pool, uri, 0));
+        }
         add_unless_null(e, "REDIRECT_QUERY_STRING", r->prev->args);
-        add_unless_null(e, "REDIRECT_URL", r->prev->uri);
     }
 
     if (e != r->subprocess_env) {
-      apr_table_overlap(r->subprocess_env, e, APR_OVERLAP_TABLES_SET);
+        apr_table_overlap(r->subprocess_env, e, APR_OVERLAP_TABLES_SET);
     }
 }
 
@@ -343,12 +378,25 @@ static char *original_uri(request_rec *r)
 AP_DECLARE(void) ap_add_cgi_vars(request_rec *r)
 {
     apr_table_t *e = r->subprocess_env;
+    core_dir_config *conf =
+        (core_dir_config *)ap_get_core_module_config(r->per_dir_config);
+    int request_uri_from_original = 1;
+    const char *request_uri_rule;
 
     apr_table_setn(e, "GATEWAY_INTERFACE", "CGI/1.1");
     apr_table_setn(e, "SERVER_PROTOCOL", r->protocol);
     apr_table_setn(e, "REQUEST_METHOD", r->method);
     apr_table_setn(e, "QUERY_STRING", r->args ? r->args : "");
-    apr_table_setn(e, "REQUEST_URI", original_uri(r));
+
+    if (conf->cgi_var_rules) {
+        request_uri_rule = apr_hash_get(conf->cgi_var_rules, "REQUEST_URI",
+                                        APR_HASH_KEY_STRING);
+        if (request_uri_rule && !strcmp(request_uri_rule, "current-uri")) {
+            request_uri_from_original = 0;
+        }
+    }
+    apr_table_setn(e, "REQUEST_URI",
+                   request_uri_from_original ? original_uri(r) : r->uri);
 
     /* Note that the code below special-cases scripts run from includes,
      * because it "knows" that the sub_request has been hacked to have the
@@ -446,12 +494,14 @@ AP_DECLARE(int) ap_scan_script_header_err_core_ex(request_rec *r, char *buffer,
             const char *msg = "Premature end of script headers";
             if (first_header)
                 msg = "End of script output before headers";
+            /* Intentional no APLOGNO */
             ap_log_rerror(SCRIPT_LOG_MARK, APLOG_ERR|APLOG_TOCLIENT, 0, r,
                           "%s: %s", msg,
                           apr_filepath_name_get(r->filename));
             return HTTP_INTERNAL_SERVER_ERROR;
         }
         else if (rv == -1) {
+            /* Intentional no APLOGNO */
             ap_log_rerror(SCRIPT_LOG_MARK, APLOG_ERR|APLOG_TOCLIENT, 0, r,
                           "Script timed out before returning headers: %s",
                           apr_filepath_name_get(r->filename));
@@ -542,7 +592,8 @@ AP_DECLARE(int) ap_scan_script_header_err_core_ex(request_rec *r, char *buffer,
             }
             if (maybeASCII > maybeEBCDIC) {
                 ap_log_error(SCRIPT_LOG_MARK, APLOG_ERR, 0, r->server,
-                             "CGI Interface Error: Script headers apparently ASCII: (CGI = %s)",
+                             APLOGNO(02660) "CGI Interface Error: "
+                             "Script headers apparently ASCII: (CGI = %s)",
                              r->filename);
                 inbytes_left = outbytes_left = cp - w;
                 apr_xlate_conv_buffer(ap_hdrs_from_ascii,
@@ -553,11 +604,12 @@ AP_DECLARE(int) ap_scan_script_header_err_core_ex(request_rec *r, char *buffer,
         if (!(l = strchr(w, ':'))) {
             if (!buffer) {
                 /* Soak up all the script output - may save an outright kill */
-                while ((*getsfunc) (w, MAX_STRING_LEN - 1, getsfunc_data)) {
+                while ((*getsfunc)(w, MAX_STRING_LEN - 1, getsfunc_data) > 0) {
                     continue;
                 }
             }
 
+            /* Intentional no APLOGNO */
             ap_log_rerror(SCRIPT_LOG_MARK, APLOG_ERR|APLOG_TOCLIENT, 0, r,
                           "malformed header from script '%s': Bad header: %.30s",
                           apr_filepath_name_get(r->filename), w);
@@ -565,11 +617,11 @@ AP_DECLARE(int) ap_scan_script_header_err_core_ex(request_rec *r, char *buffer,
         }
 
         *l++ = '\0';
-        while (*l && apr_isspace(*l)) {
+        while (apr_isspace(*l)) {
             ++l;
         }
 
-        if (!strcasecmp(w, "Content-type")) {
+        if (!ap_cstr_casecmp(w, "Content-type")) {
             char *tmp;
 
             /* Nuke trailing whitespace */
@@ -587,42 +639,88 @@ AP_DECLARE(int) ap_scan_script_header_err_core_ex(request_rec *r, char *buffer,
          * If the script returned a specific status, that's what
          * we'll use - otherwise we assume 200 OK.
          */
-        else if (!strcasecmp(w, "Status")) {
+        else if (!ap_cstr_casecmp(w, "Status")) {
             r->status = cgi_status = atoi(l);
             if (!ap_is_HTTP_VALID_RESPONSE(cgi_status))
+                /* Intentional no APLOGNO */
                 ap_log_rerror(SCRIPT_LOG_MARK, APLOG_ERR|APLOG_TOCLIENT, 0, r,
-                              "Invalid status line from script '%s': %s",
-                              apr_filepath_name_get(r->filename), w);
+                              "Invalid status line from script '%s': %.30s",
+                              apr_filepath_name_get(r->filename), l);
             else
-                ap_log_rerror(SCRIPT_LOG_MARK, APLOG_TRACE1, 0, r,
-                              "Status line from script '%s': %s",
-                              apr_filepath_name_get(r->filename), w);
+                if (APLOGrtrace1(r))
+                   ap_log_rerror(SCRIPT_LOG_MARK, APLOG_TRACE1, 0, r,
+                                 "Status line from script '%s': %.30s",
+                                 apr_filepath_name_get(r->filename), l);
             r->status_line = apr_pstrdup(r->pool, l);
         }
-        else if (!strcasecmp(w, "Location")) {
+        else if (!ap_cstr_casecmp(w, "Location")) {
             apr_table_set(r->headers_out, w, l);
         }
-        else if (!strcasecmp(w, "Content-Length")) {
+        else if (!ap_cstr_casecmp(w, "Content-Length")) {
             apr_table_set(r->headers_out, w, l);
         }
-        else if (!strcasecmp(w, "Content-Range")) {
+        else if (!ap_cstr_casecmp(w, "Content-Range")) {
             apr_table_set(r->headers_out, w, l);
         }
-        else if (!strcasecmp(w, "Transfer-Encoding")) {
+        else if (!ap_cstr_casecmp(w, "Transfer-Encoding")) {
             apr_table_set(r->headers_out, w, l);
         }
-        else if (!strcasecmp(w, "ETag")) {
+        else if (!ap_cstr_casecmp(w, "ETag")) {
             apr_table_set(r->headers_out, w, l);
         }
         /*
          * If the script gave us a Last-Modified header, we can't just
-         * pass it on blindly because of restrictions on future values.
+         * pass it on blindly because of restrictions on future or invalid values.
          */
-        else if (!strcasecmp(w, "Last-Modified")) {
-            ap_update_mtime(r, apr_date_parse_http(l));
-            ap_set_last_modified(r);
+        else if (!ap_cstr_casecmp(w, "Last-Modified")) {
+            apr_time_t parsed_date = apr_date_parse_http(l);
+            if (parsed_date != APR_DATE_BAD) {
+                ap_update_mtime(r, parsed_date);
+                ap_set_last_modified(r);
+                if (APLOGrtrace1(r)) {
+                    apr_time_t last_modified_date = apr_date_parse_http(apr_table_get(r->headers_out,
+                                                                                      "Last-Modified"));
+                    /*
+                     * A Last-Modified header value coming from a (F)CGI source
+                     * is considered HTTP input so we assume the GMT timezone.
+                     * The following logs should inform the admin about violations
+                     * and related actions taken by httpd.
+                     * The apr_date_parse_rfc function is 'timezone aware'
+                     * and it will be used to generate a more informative set of logs
+                     * (we don't use it as a replacement of apr_date_parse_http
+                     * for the aforementioned reason).
+                     */
+                    apr_time_t parsed_date_tz_aware = apr_date_parse_rfc(l);
+
+                    /* 
+                     * The parsed Last-Modified header datestring has been replaced by httpd.
+                     */
+                    if (parsed_date > last_modified_date) {
+                        ap_log_rerror(SCRIPT_LOG_MARK, APLOG_TRACE1, 0, r,
+                                      "The Last-Modified header value %s (%s) "
+                                      "has been replaced with '%s'", l,
+                                      parsed_date != parsed_date_tz_aware ? "not in GMT"
+                                                                          : "in the future",
+                                      apr_table_get(r->headers_out, "Last-Modified"));
+                    /* 
+                     * Last-Modified header datestring not in GMT and not considered in the future
+                     * by httpd (like now() + 1 hour in the PST timezone). No action is taken but
+                     * the admin is warned about the violation.
+                     */
+                    } else if (parsed_date != parsed_date_tz_aware) {
+                        ap_log_rerror(SCRIPT_LOG_MARK, APLOG_TRACE1, 0, r,
+                                      "The Last-Modified header value is not set "
+                                      "within the GMT timezone (as required)");
+                    }
+                }
+            }
+            else {
+                if (APLOGrtrace1(r))
+                   ap_log_rerror(SCRIPT_LOG_MARK, APLOG_TRACE1, 0, r,
+                                 "Ignored invalid header value: Last-Modified: '%s'", l);
+            }
         }
-        else if (!strcasecmp(w, "Set-Cookie")) {
+        else if (!ap_cstr_casecmp(w, "Set-Cookie")) {
             apr_table_add(cookie_table, w, l);
         }
         else {
@@ -672,7 +770,8 @@ static int getsfunc_BRIGADE(char *buf, int len, void *arg)
     apr_status_t rv;
     int done = 0;
 
-    while ((dst < dst_end) && !done && !APR_BUCKET_IS_EOS(e)) {
+    while ((dst < dst_end) && !done && e != APR_BRIGADE_SENTINEL(bb)
+           && !APR_BUCKET_IS_EOS(e)) {
         const char *bucket_data;
         apr_size_t bucket_data_len;
         const char *src;
@@ -701,12 +800,11 @@ static int getsfunc_BRIGADE(char *buf, int len, void *arg)
             apr_bucket_split(e, src - bucket_data);
         }
         next = APR_BUCKET_NEXT(e);
-        APR_BUCKET_REMOVE(e);
-        apr_bucket_destroy(e);
+        apr_bucket_delete(e);
         e = next;
     }
     *dst = 0;
-    return 1;
+    return done;
 }
 
 AP_DECLARE(int) ap_scan_script_header_err_brigade(request_rec *r,

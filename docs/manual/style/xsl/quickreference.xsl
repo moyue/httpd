@@ -35,6 +35,8 @@
     <body id="directive-index">&lf;
         <xsl:call-template name="top"/>&lf;
 
+        <xsl:call-template name="retired" />
+
         <div id="preamble">
             <h1>
                 <xsl:value-of select="title" />
@@ -113,6 +115,16 @@
                         <td>
                             <xsl:value-of
                                 select="$message[@id='htaccess']"/>
+                        </td>
+                    </tr>&lf;
+                    <tr>
+                        <th>
+                            <xsl:value-of
+                                select="$message[@id='proxy']/@letter"/>
+                        </th>
+                        <td>
+                            <xsl:value-of
+                                select="$message[@id='proxy']"/>
                         </td>
                     </tr>&lf;
                     </table>
@@ -217,6 +229,7 @@
     select="$directives[$letter=translate(substring(normalize-space(name), 1,1),
                                           $lowercase,$uppercase)]">
 <xsl:sort select="name" />
+<xsl:sort select="../name" /> <!-- in case of duplicate directives -->
 
     <xsl:choose>
     <xsl:when test="$modules[name=current()/../name]
@@ -286,28 +299,36 @@
                 <xsl:apply-templates select="$directive/syntax" />
             </a>
         </td>
-        <td>
-            <!-- if the default value contains (at least) one <br />, -->
-            <!-- this probably means that a short explanation follows -->
-            <!-- the actual default value. We cut off the string      -->
-            <!-- after the <br /> so it will not be shown here.       -->
-            <!-- (add the + character instead)                        -->
-            <xsl:variable name="default">
-                <xsl:choose>
-                <xsl:when test="count($directive/default[count(br) &gt; 0])
-                                &gt; 0">
-                    <xsl:value-of
-                        select="$directive/default/child::node()
-                                [count(preceding-sibling::*) = 0]" />
-                </xsl:when>
-                <xsl:otherwise>
-                    <xsl:value-of select="$directive/default"/>
-                </xsl:otherwise>
-                </xsl:choose>
-            </xsl:variable>
 
+        <!-- if the default value contains (at least) one <br />, -->
+        <!-- this probably means that a short explanation follows -->
+        <!-- the actual default value. We cut off the string      -->
+        <!-- after the <br /> so it will not be shown here.       -->
+        <!-- (add the + character instead)                        -->
+        <xsl:variable name="default">
+            <xsl:choose>
+            <xsl:when test="count($directive/default[count(br) &gt; 0])
+                            &gt; 0">
+                <xsl:value-of
+                    select="$directive/default/child::node()
+                            [count(preceding-sibling::*) = 0]" />
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="$directive/default"/>
+            </xsl:otherwise>
+            </xsl:choose>
+        </xsl:variable>
+
+        <!-- Now. If the default output is empty, the xslt processor emits -->
+        <!-- <td />. In order to avoid this, we simply emit <td></td>      -->
+        <!-- by ourselves. Crap.                                           -->
+        <xsl:choose>
+        <xsl:when test="not(substring(substring-after(
+                            concat($default, ' '), name),1,20) = '')">
+        <td>
             <xsl:value-of select="substring(substring-after(concat($default,
                                   ' '), name),1,20)" />
+
             <xsl:if test="string-length(substring-after(concat($default, ' '),
                               name)) &gt; 20
                           or count($directive/default[count(br) &gt; 0])
@@ -315,6 +336,12 @@
                 <xsl:text> +</xsl:text>
             </xsl:if>
         </td>
+        </xsl:when>
+        <xsl:otherwise>
+            <xsl:text disable-output-escaping="yes">&lt;td>&lt;/td></xsl:text>
+        </xsl:otherwise>
+        </xsl:choose>
+
         <td>
             <xsl:if test="$directive/contextlist/context
                           [normalize-space(.)='server config']">
@@ -331,6 +358,10 @@
             <xsl:if test="$directive/contextlist/context
                           [normalize-space(.)='.htaccess']">
                 <xsl:value-of select="$message[@id='htaccess']/@letter"/>
+            </xsl:if>
+            <xsl:if test="$directive/contextlist/context
+                          [normalize-space(.)='proxy section']">
+                <xsl:value-of select="$message[@id='proxy']/@letter"/>
             </xsl:if>
         </td>
         <td>

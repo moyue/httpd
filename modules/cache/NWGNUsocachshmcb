@@ -25,9 +25,10 @@ include $(AP_WORK)/build/NWGNUhead.inc
 XINCDIRS	+= \
 			$(APR)/include \
 			$(APRUTIL)/include \
-			$(AP_WORK)/include \
-			$(AP_WORK)/server/mpm/netware \
+			$(SRC)/include \
+			$(SERVER)/mpm/netware \
 			$(NWOS) \
+			$(STDMOD)/generators \
 			$(EOLIST)
 
 #

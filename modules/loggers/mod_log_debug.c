@@ -35,8 +35,8 @@ typedef struct {
     apr_array_header_t *entries;
 } log_debug_dirconf;
 
-const char *allhooks = "all";
-const char * const hooks[] = {
+static const char *allhooks = "all";
+static const char * const hooks[] = {
     "log_transaction",      /*  0 */
     "quick_handler",        /*  1 */
     "handler",              /*  2 */
@@ -79,11 +79,15 @@ static void do_debug_log(request_rec *r, const char *hookname)
             ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00641)
                           "Can't evaluate message expression: %s", err);
         if (APLOGrdebug(r))
-            ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s (%s hook, %s:%d)",
+            /* Intentional no APLOGNO */
+            ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
+                           "%s (%s hook, %s:%d)",
                            msg, hookname, entry->msg_expr->filename,
                            entry->msg_expr->line_number);
         else
-            ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "%s", msg);
+            /* Intentional no APLOGNO */
+            ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r,
+                          "%s", msg);
     }
 }
 

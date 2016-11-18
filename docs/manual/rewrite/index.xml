@@ -56,7 +56,7 @@
       complex. This document supplements the <a
       href="../mod/mod_rewrite.html">reference documentation</a>, and
       attempts to allay some of that complexity, and provide highly
-      annoted examples of common scenarios that you may handle with
+      annotated examples of common scenarios that you may handle with
       mod_rewrite. But we also attempt to show you when you should not
       use mod_rewrite, and use other standard Apache features instead,
       thus avoiding this unnecessary complexity.</p>
@@ -66,14 +66,14 @@
 <li><a href="../mod/mod_rewrite.html">mod_rewrite reference
 documentation</a></li>
 <li><a href="intro.html">Introduction to regular expressions and mod_rewrite</a></li>
+<li><a href="flags.html">RewriteRule Flags</a></li>
+<li><a href="rewritemap.html">Using RewriteMap</a></li>
+<li><a href="avoid.html">When <strong>NOT</strong> to use mod_rewrite</a></li>
 <li><a href="remapping.html">Using mod_rewrite for redirection and remapping of URLs</a></li>
 <li><a href="access.html">Using mod_rewrite to control access</a></li>
 <li><a href="vhosts.html">Dynamic virtual hosts with mod_rewrite</a></li>
 <li><a href="proxy.html">Dynamic proxying with mod_rewrite</a></li>
-<li><a href="rewritemap.html">Using RewriteMap</a></li>
 <li><a href="advanced.html">Advanced techniques</a></li>
-<li><a href="avoid.html">When <strong>NOT</strong> to use mod_rewrite</a></li>
-<li><a href="flags.html">RewriteRule Flags</a></li>
 <li><a href="tech.html">Technical details</a></li>
 </ul>
 </summary>
@@ -87,5 +87,3 @@ wiki</a></seealso>
 
 
 </manualpage>
-
-

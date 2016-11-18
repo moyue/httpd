@@ -51,7 +51,7 @@ static int apl_toscope(const char *name)
     return AP_LUA_SCOPE_ONCE;
 }
 
-AP_LUA_DECLARE(apr_status_t) ap_lua_map_handler(ap_lua_dir_cfg *cfg,
+apr_status_t ap_lua_map_handler(ap_lua_dir_cfg *cfg,
                                                  const char *file,
                                                  const char *function,
                                                  const char *pattern,
@@ -141,7 +141,8 @@ static int cfg_directory(lua_State *L)
     return 1;
 }
 
-/*static int cfg_root(lua_State *L) {
+/*static int cfg_root(lua_State *L)
+{
     ap_lua_dir_cfg *cfg = check_dir_config(L, 1);
     lua_pushstring(L, cfg->root_path);
     return 1;
@@ -154,14 +155,6 @@ static const struct luaL_Reg cfg_methods[] = {
     {NULL, NULL}
 };
 
-
-static int cmd_foo(lua_State *L)
-{
-    cmd_parms *cmd = check_cmd_parms(L, 1);
-    ap_log_error(APLOG_MARK, APLOG_ERR, 0, cmd->server, APLOGNO(01479) "FOO!");
-    return 0;
-}
-
 /* helper function for the logging functions below */
 static int cmd_log_at(lua_State *L, int level)
 {
@@ -173,6 +166,7 @@ static int cmd_log_at(lua_State *L, int level)
     lua_getinfo(L, "Sl", &dbg);
 
     msg = luaL_checkstring(L, 2);
+    /* Intentional no APLOGNO */
     ap_log_error(dbg.source, dbg.currentline, APLOG_MODULE_INDEX, level, 0,
                  cmd->server, "%s", msg);
     return 0;
@@ -181,88 +175,70 @@ static int cmd_log_at(lua_State *L, int level)
 /* r:debug(String) and friends which use apache logging */
 static int cmd_emerg(lua_State *L)
 {
-    cmd_log_at(L, APLOG_EMERG);
-    return 0;
+    return cmd_log_at(L, APLOG_EMERG);
 }
 static int cmd_alert(lua_State *L)
 {
-    cmd_log_at(L, APLOG_ALERT);
-    return 0;
+    return cmd_log_at(L, APLOG_ALERT);
 }
 static int cmd_crit(lua_State *L)
 {
-    cmd_log_at(L, APLOG_CRIT);
-    return 0;
+    return cmd_log_at(L, APLOG_CRIT);
 }
 static int cmd_err(lua_State *L)
 {
-    cmd_log_at(L, APLOG_ERR);
-    return 0;
+    return cmd_log_at(L, APLOG_ERR);
 }
 static int cmd_warn(lua_State *L)
 {
-    cmd_log_at(L, APLOG_WARNING);
-    return 0;
+    return cmd_log_at(L, APLOG_WARNING);
 }
 static int cmd_notice(lua_State *L)
 {
-    cmd_log_at(L, APLOG_NOTICE);
-    return 0;
+    return cmd_log_at(L, APLOG_NOTICE);
 }
 static int cmd_info(lua_State *L)
 {
-    cmd_log_at(L, APLOG_INFO);
-    return 0;
+    return cmd_log_at(L, APLOG_INFO);
 }
 static int cmd_debug(lua_State *L)
 {
-    cmd_log_at(L, APLOG_DEBUG);
-    return 0;
+    return cmd_log_at(L, APLOG_DEBUG);
 }
 static int cmd_trace1(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE1);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE1);
 }
 static int cmd_trace2(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE2);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE2);
 }
 static int cmd_trace3(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE3);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE3);
 }
 static int cmd_trace4(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE4);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE4);
 }
 static int cmd_trace5(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE5);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE5);
 }
 static int cmd_trace6(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE6);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE6);
 }
 static int cmd_trace7(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE7);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE7);
 }
 static int cmd_trace8(lua_State *L)
 {
-    cmd_log_at(L, APLOG_TRACE8);
-    return 0;
+    return cmd_log_at(L, APLOG_TRACE8);
 }
 
 static const struct luaL_Reg cmd_methods[] = {
-    {"foo", cmd_foo},
-
     {"trace8", cmd_trace8},
     {"trace7", cmd_trace7},
     {"trace6", cmd_trace6},
@@ -283,7 +259,7 @@ static const struct luaL_Reg cmd_methods[] = {
     {NULL, NULL}
 };
 
-AP_LUA_DECLARE(void) ap_lua_load_config_lmodule(lua_State *L)
+void ap_lua_load_config_lmodule(lua_State *L)
 {
     luaL_newmetatable(L, "Apache2.DirConfig");  /* [metatable] */
     lua_pushvalue(L, -1);

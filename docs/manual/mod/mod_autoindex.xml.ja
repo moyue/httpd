@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.ja.xsl"?>
-<!-- English Revision: 689261:1303788 (outdated) -->
+<!-- English Revision: 689261:1741874 (outdated) -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -62,7 +62,7 @@
 
     <p>もし <code><a href="#indexoptions.fancyindexing"
     >FancyIndexing</a></code>オプションが
-    <directive module="autoindex">IndexOptions</directive>
+    <directive module="mod_autoindex">IndexOptions</directive>
     ディレクティブに与えられているならば、
     列の先頭は表示の順番を制御するリンクになります。
     先頭のリンクを選択すると、一覧は再生成されて

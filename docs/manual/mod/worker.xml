@@ -57,7 +57,7 @@
     idle server threads, which stand ready to serve incoming
     requests. In this way, clients do not need to wait for a new
     threads or processes to be created before their requests can be
-    served. The number of processes that will initially launched is
+    served. The number of processes that will initially launch is
     set by the <directive module="mpm_common">StartServers</directive>
     directive. During operation, the server assesses the total number
     of idle threads in all processes, and forks or kills processes to
@@ -110,14 +110,14 @@
     <p>A typical configuration of the process-thread controls in
     the <module>worker</module> MPM could look as follows:</p>
 
-    <example>
-      ServerLimit         16<br />
-      StartServers         2<br />
-      MaxRequestWorkers         150<br />
-      MinSpareThreads     25<br />
-      MaxSpareThreads     75<br />
-      ThreadsPerChild     25
-    </example>
+    <highlight language="config">
+ServerLimit         16
+StartServers         2
+MaxRequestWorkers  150
+MinSpareThreads     25
+MaxSpareThreads     75
+ThreadsPerChild     25
+    </highlight>
 
     <p>While the parent process is usually started as <code>root</code>
     under Unix in order to bind to port 80, the child processes and threads

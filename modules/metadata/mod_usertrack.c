@@ -148,7 +148,6 @@ static void make_cookie(request_rec *r)
                    (dcfg->style == CT_COOKIE2 ? "Set-Cookie2" : "Set-Cookie"),
                    new_cookie);
     apr_table_setn(r->notes, "cookie", apr_pstrdup(r->pool, cookiebuf));   /* log first time */
-    return;
 }
 
 /* dcfg->regexp is "^cookie_name=([^;]+)|;[ \t]+cookie_name=([^;]+)",
@@ -308,9 +307,9 @@ static const char *set_cookie_exp(cmd_parms *parms, void *dummy,
      * CookieExpires "[plus] {<num> <type>}*"
      */
 
-    word = ap_getword_conf(parms->pool, &arg);
+    word = ap_getword_conf(parms->temp_pool, &arg);
     if (!strncasecmp(word, "plus", 1)) {
-        word = ap_getword_conf(parms->pool, &arg);
+        word = ap_getword_conf(parms->temp_pool, &arg);
     };
 
     /* {<num> <type>}* */
@@ -322,7 +321,7 @@ static const char *set_cookie_exp(cmd_parms *parms, void *dummy,
             return "bad expires code, numeric value expected.";
 
         /* <type> */
-        word = ap_getword_conf(parms->pool, &arg);
+        word = ap_getword_conf(parms->temp_pool, &arg);
         if (!word[0])
             return "bad expires code, missing <type>";
 
@@ -346,7 +345,7 @@ static const char *set_cookie_exp(cmd_parms *parms, void *dummy,
         modifier = modifier + factor * num;
 
         /* next <num> */
-        word = ap_getword_conf(parms->pool, &arg);
+        word = ap_getword_conf(parms->temp_pool, &arg);
     }
 
     cls->expires = modifier;

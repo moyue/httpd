@@ -542,7 +542,6 @@ BOOL ApacheManageService(LPCTSTR szServiceName, LPCTSTR szImagePath,
 {
     TCHAR szMsg[MAX_PATH];
     BOOL retValue;
-    BOOL serviceFlag = TRUE;
     SC_HANDLE schService;
     SC_HANDLE schSCManager;
     SERVICE_STATUS schSStatus;
@@ -1587,7 +1586,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 #ifdef UNICODE
     __wargv = CommandLineToArgvW(GetCommandLineW(), &__argc);
 #else
+#if defined(_MSC_VER) && _MSC_VER < 1800 
     _setargv();
+#endif
 #endif
 
     if ((__argc == 2) && (_tcscmp(__targv[1], _T("--kill")) == 0))

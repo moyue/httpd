@@ -69,6 +69,16 @@ performance</description>
     is <code>On</code>.  In version 2.3.6, loading mod_status will
     toggle <directive module="core">ExtendedStatus</directive> On
     by default.</p>
+
+    <note>
+      <strong>It should be noted that if <module>mod_status</module> is
+      loaded into the server, its handler capability is available
+      in <em>all</em> configuration files, including
+      <em>per</em>-directory files (<em>e.g.</em>,
+      <code>.htaccess</code>). This may have security-related
+      ramifications for your site.</strong>
+    </note>
+
 </summary>
 
 <section id="enable">
@@ -77,15 +87,12 @@ performance</description>
     <p>To enable status reports only for browsers from the example.com
     domain add this code to your <code>httpd.conf</code>
     configuration file</p>
-<example>
-    &lt;Location /server-status&gt;<br />
-    <indent>
-    SetHandler server-status<br />
-<br />
-    Require host example.com<br />
-    </indent>
-    &lt;/Location&gt;
-</example>
+<highlight language="config">
+&lt;Location "/server-status"&gt;
+    SetHandler server-status
+    Require host example.com
+&lt;/Location&gt;
+</highlight>
 
     <p>You can now access server statistics by using a Web browser
     to access the page
@@ -111,15 +118,6 @@ performance</description>
     is useful when automatically run, see the Perl program
     <code>log_server_status</code>, which you will find in the
     <code>/support</code> directory of your Apache HTTP Server installation.</p>
-
-    <note>
-      <strong>It should be noted that if <module>mod_status</module> is
-      loaded into the server, its handler capability is available
-      in <em>all</em> configuration files, including
-      <em>per</em>-directory files (<em>e.g.</em>,
-      <code>.htaccess</code>). This may have security-related
-      ramifications for your site.</strong>
-    </note>
 
 </section>
 
@@ -156,4 +154,3 @@ performance</description>
 </section>
 
 </modulesynopsis>
-

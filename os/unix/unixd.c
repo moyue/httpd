@@ -74,7 +74,7 @@ AP_DECLARE(void) ap_unixd_set_rlimit(cmd_parms *cmd, struct rlimit **plimit,
         return;
     }
 
-    if ((str = ap_getword_conf(cmd->pool, &arg))) {
+    if (*(str = ap_getword_conf(cmd->temp_pool, &arg)) != '\0') {
         if (!strcasecmp(str, "max")) {
             cur = limit->rlim_max;
         }
@@ -88,7 +88,7 @@ AP_DECLARE(void) ap_unixd_set_rlimit(cmd_parms *cmd, struct rlimit **plimit,
         return;
     }
 
-    if (arg2 && (str = ap_getword_conf(cmd->pool, &arg2))) {
+    if (arg2 && (*(str = ap_getword_conf(cmd->temp_pool, &arg2)) != '\0')) {
         max = atol(str);
     }
 
@@ -241,7 +241,7 @@ AP_DECLARE(apr_status_t) ap_unixd_set_proc_mutex_perms(apr_proc_mutex_t *pmutex)
             };
 #endif
             union semun ick;
-            struct semid_ds buf;
+            struct semid_ds buf = { { 0 } };
 
             apr_os_proc_mutex_get(&ospmutex, pmutex);
             buf.sem_perm.uid = ap_unixd_config.user_id;
@@ -522,8 +522,8 @@ pid_t os_fork(const char *user)
 
         pid = ufork(username);
         if (pid == -1 && errno == EPERM) {
-            ap_log_error(APLOG_MARK, APLOG_EMERG, errno,
-                         ap_server_conf, APLOGNO(02181) "ufork: Possible mis-configuration "
+            ap_log_error(APLOG_MARK, APLOG_EMERG, errno, ap_server_conf,
+                         APLOGNO(02181) "ufork: Possible mis-configuration "
                          "for user %s - Aborting.", user);
             exit(1);
         }

@@ -28,7 +28,13 @@
                                   core keeps dumping.''
                                             -- Unknown    */
 #include "ssl_private.h"
+#include "mod_ssl.h"
+#include "mod_ssl_openssl.h"
 #include "apr_date.h"
+
+APR_IMPLEMENT_OPTIONAL_HOOK_RUN_ALL(ssl, SSL, int, proxy_post_handshake,
+                                    (conn_rec *c,SSL *ssl),
+                                    (c,ssl),OK,DECLINED);
 
 /*  _________________________________________________________________
 **
@@ -143,7 +149,7 @@ static int bio_filter_out_pass(bio_filter_out_ctx_t *outctx)
  * success, -1 on failure. */
 static int bio_filter_out_flush(BIO *bio)
 {
-    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)(bio->ptr);
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
     apr_bucket *e;
 
     AP_DEBUG_ASSERT(APR_BRIGADE_EMPTY(outctx->bb));
@@ -156,10 +162,16 @@ static int bio_filter_out_flush(BIO *bio)
 
 static int bio_filter_create(BIO *bio)
 {
-    bio->shutdown = 1;
-    bio->init = 1;
+    BIO_set_shutdown(bio, 1);
+    BIO_set_init(bio, 1);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    /* No setter method for OpenSSL 1.1.0 available,
+     * but I can't find any functional use of the
+     * "num" field there either.
+     */
     bio->num = -1;
-    bio->ptr = NULL;
+#endif
+    BIO_set_data(bio, NULL);
 
     return 1;
 }
@@ -179,13 +191,18 @@ static int bio_filter_destroy(BIO *bio)
 static int bio_filter_out_read(BIO *bio, char *out, int outl)
 {
     /* this is never called */
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, outctx->c,
+                  "BUG: %s() should not be called", "bio_filter_out_read");
+    AP_DEBUG_ASSERT(0);
     return -1;
 }
 
 static int bio_filter_out_write(BIO *bio, const char *in, int inl)
 {
-    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)(bio->ptr);
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
     apr_bucket *e;
+    int need_flush;
 
     /* Abort early if the client has initiated a renegotiation. */
     if (outctx->filter_ctx->config->reneg_state == RENEG_ABORT) {
@@ -204,6 +221,26 @@ static int bio_filter_out_write(BIO *bio, const char *in, int inl)
     e = apr_bucket_transient_create(in, inl, outctx->bb->bucket_alloc);
     APR_BRIGADE_INSERT_TAIL(outctx->bb, e);
 
+    /* In theory, OpenSSL should flush as necessary, but it is known
+     * not to do so correctly in some cases (< 0.9.8m; see PR 46952),
+     * or on the proxy/client side (after ssl23_client_hello(), e.g.
+     * ssl/proxy.t test suite).
+     *
+     * Historically, this flush call was performed only for an SSLv2
+     * connection or for a proxy connection.  Calling _out_flush can
+     * be expensive in cases where requests/responses are pipelined,
+     * so limit the performance impact to handshake time.
+     */
+#if OPENSSL_VERSION_NUMBER < 0x0009080df
+     need_flush = !SSL_is_init_finished(outctx->filter_ctx->pssl);
+#else
+     need_flush = SSL_in_connect_init(outctx->filter_ctx->pssl);
+#endif
+    if (need_flush) {
+        e = apr_bucket_flush_create(outctx->bb->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(outctx->bb, e);
+    }
+
     if (bio_filter_out_pass(outctx) < 0) {
         return -1;
     }
@@ -214,7 +251,7 @@ static int bio_filter_out_write(BIO *bio, const char *in, int inl)
 static long bio_filter_out_ctrl(BIO *bio, int cmd, long num, void *ptr)
 {
     long ret = 1;
-    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)(bio->ptr);
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
 
     switch (cmd) {
     case BIO_CTRL_RESET:
@@ -230,10 +267,10 @@ static long bio_filter_out_ctrl(BIO *bio, int cmd, long num, void *ptr)
         ret = 0;
         break;
     case BIO_CTRL_GET_CLOSE:
-        ret = (long)bio->shutdown;
+        ret = (long)BIO_get_shutdown(bio);
         break;
       case BIO_CTRL_SET_CLOSE:
-        bio->shutdown = (int)num;
+        BIO_set_shutdown(bio, (int)num);
         break;
       case BIO_CTRL_FLUSH:
         ret = bio_filter_out_flush(bio);
@@ -258,27 +295,22 @@ static long bio_filter_out_ctrl(BIO *bio, int cmd, long num, void *ptr)
 static int bio_filter_out_gets(BIO *bio, char *buf, int size)
 {
     /* this is never called */
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, outctx->c,
+                  "BUG: %s() should not be called", "bio_filter_out_gets");
+    AP_DEBUG_ASSERT(0);
     return -1;
 }
 
 static int bio_filter_out_puts(BIO *bio, const char *str)
 {
     /* this is never called */
+    bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, outctx->c,
+                  "BUG: %s() should not be called", "bio_filter_out_puts");
+    AP_DEBUG_ASSERT(0);
     return -1;
 }
-
-static BIO_METHOD bio_filter_out_method = {
-    BIO_TYPE_MEM,
-    "APR output filter",
-    bio_filter_out_write,
-    bio_filter_out_read,     /* read is never called */
-    bio_filter_out_puts,     /* puts is never called */
-    bio_filter_out_gets,     /* gets is never called */
-    bio_filter_out_ctrl,
-    bio_filter_create,
-    bio_filter_destroy,
-    NULL
-};
 
 typedef struct {
     int length;
@@ -317,7 +349,7 @@ static int char_buffer_read(char_buffer_t *buffer, char *in, int inl)
     }
 
     if (buffer->length > inl) {
-        /* we have have enough to fill the caller's buffer */
+        /* we have enough to fill the caller's buffer */
         memmove(in, buffer->value, inl);
         buffer->value += inl;
         buffer->length -= inl;
@@ -429,7 +461,7 @@ static apr_status_t brigade_consume(apr_bucket_brigade *bb,
 static int bio_filter_in_read(BIO *bio, char *in, int inlen)
 {
     apr_size_t inl = inlen;
-    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)(bio->ptr);
+    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)BIO_get_data(bio);
     apr_read_type_e block = inctx->block;
 
     inctx->rc = APR_SUCCESS;
@@ -441,21 +473,6 @@ static int bio_filter_in_read(BIO *bio, char *in, int inlen)
     /* Abort early if the client has initiated a renegotiation. */
     if (inctx->filter_ctx->config->reneg_state == RENEG_ABORT) {
         inctx->rc = APR_ECONNABORTED;
-        return -1;
-    }
-
-    /* In theory, OpenSSL should flush as necessary, but it is known
-     * not to do so correctly in some cases; see PR 46952.
-     *
-     * Historically, this flush call was performed only for an SSLv2
-     * connection or for a proxy connection.  Calling _out_flush
-     * should be very cheap in cases where it is unnecessary (and no
-     * output is buffered) so the performance impact of doing it
-     * unconditionally should be minimal.
-     */
-    if (bio_filter_out_flush(inctx->bio_out) < 0) {
-        bio_filter_out_ctx_t *outctx = inctx->bio_out->ptr;
-        inctx->rc = outctx->rc;
         return -1;
     }
 
@@ -482,6 +499,12 @@ static int bio_filter_in_read(BIO *bio, char *in, int inlen)
             return -1;
         }
 
+        if (block == APR_BLOCK_READ 
+            && APR_STATUS_IS_TIMEUP(inctx->rc)
+            && APR_BRIGADE_EMPTY(inctx->bb)) {
+            /* don't give up, just return the timeout */
+            return -1;
+        }
         if (inctx->rc != APR_SUCCESS) {
             /* Unexpected errors discard the brigade */
             apr_brigade_cleanup(inctx->bb);
@@ -518,20 +541,102 @@ static int bio_filter_in_read(BIO *bio, char *in, int inlen)
     return -1;
 }
 
+static int bio_filter_in_write(BIO *bio, const char *in, int inl)
+{
+    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, inctx->f->c,
+                  "BUG: %s() should not be called", "bio_filter_in_write");
+    AP_DEBUG_ASSERT(0);
+    return -1;
+}
 
-static BIO_METHOD bio_filter_in_method = {
+static int bio_filter_in_puts(BIO *bio, const char *str)
+{
+    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, inctx->f->c,
+                  "BUG: %s() should not be called", "bio_filter_in_puts");
+    AP_DEBUG_ASSERT(0);
+    return -1;
+}
+
+static int bio_filter_in_gets(BIO *bio, char *buf, int size)
+{
+    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, inctx->f->c,
+                  "BUG: %s() should not be called", "bio_filter_in_gets");
+    AP_DEBUG_ASSERT(0);
+    return -1;
+}
+
+static long bio_filter_in_ctrl(BIO *bio, int cmd, long num, void *ptr)
+{
+    bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)BIO_get_data(bio);
+    ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, inctx->f->c,
+                  "BUG: %s() should not be called", "bio_filter_in_ctrl");
+    AP_DEBUG_ASSERT(0);
+    return -1;
+}
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+        
+static BIO_METHOD bio_filter_out_method = {
     BIO_TYPE_MEM,
-    "APR input filter",
-    NULL,                       /* write is never called */
-    bio_filter_in_read,
-    NULL,                       /* puts is never called */
-    NULL,                       /* gets is never called */
-    NULL,                       /* ctrl is never called */
+    "APR output filter",
+    bio_filter_out_write,
+    bio_filter_out_read,     /* read is never called */
+    bio_filter_out_puts,     /* puts is never called */
+    bio_filter_out_gets,     /* gets is never called */
+    bio_filter_out_ctrl,
     bio_filter_create,
     bio_filter_destroy,
     NULL
 };
 
+static BIO_METHOD bio_filter_in_method = {
+    BIO_TYPE_MEM,
+    "APR input filter",
+    bio_filter_in_write,        /* write is never called */
+    bio_filter_in_read,
+    bio_filter_in_puts,         /* puts is never called */
+    bio_filter_in_gets,         /* gets is never called */
+    bio_filter_in_ctrl,         /* ctrl is never called */
+    bio_filter_create,
+    bio_filter_destroy,
+    NULL
+};
+
+#else
+
+static BIO_METHOD *bio_filter_out_method = NULL;
+static BIO_METHOD *bio_filter_in_method = NULL;
+
+void init_bio_methods(void)
+{
+    bio_filter_out_method = BIO_meth_new(BIO_TYPE_MEM, "APR output filter");
+    BIO_meth_set_write(bio_filter_out_method, &bio_filter_out_write);
+    BIO_meth_set_read(bio_filter_out_method, &bio_filter_out_read); /* read is never called */
+    BIO_meth_set_puts(bio_filter_out_method, &bio_filter_out_puts); /* puts is never called */
+    BIO_meth_set_gets(bio_filter_out_method, &bio_filter_out_gets); /* gets is never called */
+    BIO_meth_set_ctrl(bio_filter_out_method, &bio_filter_out_ctrl);
+    BIO_meth_set_create(bio_filter_out_method, &bio_filter_create);
+    BIO_meth_set_destroy(bio_filter_out_method, &bio_filter_destroy);
+
+    bio_filter_in_method = BIO_meth_new(BIO_TYPE_MEM, "APR input filter");
+    BIO_meth_set_write(bio_filter_in_method, &bio_filter_in_write); /* write is never called */
+    BIO_meth_set_read(bio_filter_in_method, &bio_filter_in_read);
+    BIO_meth_set_puts(bio_filter_in_method, &bio_filter_in_puts);   /* puts is never called */
+    BIO_meth_set_gets(bio_filter_in_method, &bio_filter_in_gets);   /* gets is never called */
+    BIO_meth_set_ctrl(bio_filter_in_method, &bio_filter_in_ctrl);   /* ctrl is never called */
+    BIO_meth_set_create(bio_filter_in_method, &bio_filter_create);
+    BIO_meth_set_destroy(bio_filter_in_method, &bio_filter_destroy);
+}
+
+void free_bio_methods(void)
+{
+    BIO_meth_free(bio_filter_out_method);
+    BIO_meth_free(bio_filter_in_method);
+}
+#endif
 
 static apr_status_t ssl_io_input_read(bio_filter_in_ctx_t *inctx,
                                       char *buf,
@@ -583,6 +688,11 @@ static apr_status_t ssl_io_input_read(bio_filter_in_ctx_t *inctx,
             }
             break;
         }
+
+        /* We rely on SSL_get_error() after the read, which requires an empty
+         * error queue before the read in order to work properly.
+         */
+        ERR_clear_error();
 
         /* SSL_read may not read because we haven't taken enough data
          * from the stack.  This is where we want to consider all of
@@ -662,6 +772,10 @@ static apr_status_t ssl_io_input_read(bio_filter_in_ctx_t *inctx,
                         break;
                     }
                     continue;  /* Blocking and nothing yet?  Try again. */
+                }
+                else if (APR_STATUS_IS_TIMEUP(inctx->rc)) {
+                    /* just return it, the calling layer might be fine with it,
+                       and we do not want to bloat the log. */
                 }
                 else {
                     ap_log_cerror(APLOG_MARK, APLOG_INFO, inctx->rc, c, APLOGNO(01991)
@@ -757,7 +871,12 @@ static apr_status_t ssl_filter_write(ap_filter_t *f,
         return APR_EGENERAL;
     }
 
-    outctx = (bio_filter_out_ctx_t *)filter_ctx->pbioWrite->ptr;
+    /* We rely on SSL_get_error() after the write, which requires an empty error
+     * queue before the write in order to work properly.
+     */
+    ERR_clear_error();
+
+    outctx = (bio_filter_out_ctx_t *)BIO_get_data(filter_ctx->pbioWrite);
     res = SSL_write(filter_ctx->pssl, (unsigned char *)data, len);
 
     if (res < 0) {
@@ -774,6 +893,20 @@ static apr_status_t ssl_filter_write(ap_filter_t *f,
              * renegotiation which is handled implicitly by OpenSSL.)
              */
             outctx->rc = APR_EAGAIN;
+        }
+        else if (ssl_err == SSL_ERROR_WANT_READ) {
+            /*
+             * If OpenSSL wants to read during write, and we were
+             * nonblocking, set the sense explicitly to read and
+             * report as an EAGAIN.
+             *
+             * (This is usually the case when the client forces an SSL
+             * renegotiation which is handled implicitly by OpenSSL.)
+             */
+            outctx->c->cs->sense = CONN_SENSE_WANT_READ;
+            outctx->rc = APR_EAGAIN;
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE6, 0, outctx->c,
+                          "Want read during nonblocking write");
         }
         else if (ssl_err == SSL_ERROR_SYSCALL) {
             ap_log_cerror(APLOG_MARK, APLOG_INFO, outctx->rc, c, APLOGNO(01993)
@@ -813,12 +946,12 @@ static apr_status_t ssl_filter_write(ap_filter_t *f,
 /* Just use a simple request.  Any request will work for this, because
  * we use a flag in the conn_rec->conn_vector now.  The fake request just
  * gets the request back to the Apache core so that a response can be sent.
- *
- * To avoid calling back for more data from the socket, use an HTTP/0.9
- * request, and tack on an EOS bucket.
+ * Since we use an HTTP/1.x request, we also have to inject the empty line
+ * that terminates the headers, or the core will read more data from the
+ * socket.
  */
 #define HTTP_ON_HTTPS_PORT \
-    "GET /" CRLF
+    "GET / HTTP/1.0" CRLF
 
 #define HTTP_ON_HTTPS_PORT_BUCKET(alloc) \
     apr_bucket_immortal_create(HTTP_ON_HTTPS_PORT, \
@@ -844,10 +977,12 @@ static void ssl_io_filter_disable(SSLConnRec *sslconn, ap_filter_t *f)
 
 static apr_status_t ssl_io_filter_error(ap_filter_t *f,
                                         apr_bucket_brigade *bb,
-                                        apr_status_t status)
+                                        apr_status_t status,
+                                        int is_init)
 {
     SSLConnRec *sslconn = myConnConfig(f->c);
     apr_bucket *bucket;
+    int send_eos = 1;
 
     switch (status) {
     case MODSSL_ERROR_HTTP_ON_HTTPS:
@@ -857,15 +992,23 @@ static apr_status_t ssl_io_filter_error(ap_filter_t *f,
                          "trying to send HTML error page");
             ssl_log_ssl_error(SSLLOG_MARK, APLOG_INFO, sslconn->server);
 
-            sslconn->non_ssl_request = 1;
             ssl_io_filter_disable(sslconn, f);
+            f->c->keepalive = AP_CONN_CLOSE;
+            if (is_init) {
+                sslconn->non_ssl_request = NON_SSL_SEND_REQLINE;
+                return APR_EGENERAL;
+            }
+            sslconn->non_ssl_request = NON_SSL_SEND_HDR_SEP;
 
             /* fake the request line */
             bucket = HTTP_ON_HTTPS_PORT_BUCKET(f->c->bucket_alloc);
+            send_eos = 0;
             break;
 
     case MODSSL_ERROR_BAD_GATEWAY:
-        bucket = ap_bucket_error_create(HTTP_BAD_REQUEST, NULL,
+        /* Send an error bucket, though the proxy currently has no
+         * special handling for error buckets and ignores this. */
+        bucket = ap_bucket_error_create(HTTP_BAD_GATEWAY, NULL,
                                         f->c->pool,
                                         f->c->bucket_alloc);
         ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, f->c, APLOGNO(01997)
@@ -877,9 +1020,10 @@ static apr_status_t ssl_io_filter_error(ap_filter_t *f,
     }
 
     APR_BRIGADE_INSERT_TAIL(bb, bucket);
-    bucket = apr_bucket_eos_create(f->c->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(bb, bucket);
-
+    if (send_eos) {
+        bucket = apr_bucket_eos_create(f->c->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(bb, bucket);
+    }
     return APR_SUCCESS;
 }
 
@@ -977,10 +1121,12 @@ static void ssl_filter_io_shutdown(ssl_filter_ctx_t *filter_ctx,
     }
 
     SSL_set_shutdown(ssl, shutdown_type);
-    SSL_smart_shutdown(ssl);
+    modssl_smart_shutdown(ssl);
 
     /* and finally log the fact that we've closed the connection */
     if (APLOG_CS_IS_LEVEL(c, mySrvFromConn(c), loglevel)) {
+        /* Intentional no APLOGNO */
+        /* logno provides APLOGNO */
         ap_log_cserror(APLOG_MARK, loglevel, 0, c, mySrvFromConn(c),
                        "%sConnection closed to child %ld with %s shutdown "
                        "(server %s)",
@@ -1045,14 +1191,57 @@ static apr_status_t ssl_io_filter_handshake(ssl_filter_ctx_t *filter_ctx)
 
     server = sslconn->server;
     if (sslconn->is_proxy) {
-#ifndef OPENSSL_NO_TLSEXT
+#ifdef HAVE_TLSEXT
         apr_ipsubnet_t *ip;
 #endif
         const char *hostname_note = apr_table_get(c->notes,
                                                   "proxy-request-hostname");
+#ifdef HAVE_TLS_ALPN
+        const char *alpn_note;
+#endif
+        BOOL proxy_ssl_check_peer_ok = TRUE;
+        int post_handshake_rc = OK;
+        SSLDirConfigRec *dc;
+
+        dc = sslconn->dc;
         sc = mySrvConfig(server);
 
-#ifndef OPENSSL_NO_TLSEXT
+#ifdef HAVE_TLSEXT
+#ifdef HAVE_TLS_ALPN
+        alpn_note = apr_table_get(c->notes, "proxy-request-alpn-protos");
+        if (alpn_note) {
+            char *protos, *s, *p, *last;
+            apr_size_t len;
+
+            s = protos = apr_pcalloc(c->pool, strlen(alpn_note)+1);
+            p = apr_pstrdup(c->pool, alpn_note);
+            while ((p = apr_strtok(p, ", ", &last))) {
+                len = last - p - (*last? 1 : 0); 
+                if (len > 255) {
+                    ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c, APLOGNO(03309)
+                                  "ALPN proxy protocol identifier too long: %s",
+                                  p);
+                    ssl_log_ssl_error(SSLLOG_MARK, APLOG_ERR, server);
+                    return APR_EGENERAL;
+                }
+                *s++ = (unsigned char)len;
+                while (len--) {
+                    *s++ = *p++;
+                }
+                p = NULL;
+            }
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c, 
+                          "setting alpn protos from '%s', protolen=%d", 
+                          alpn_note, (int)(s - protos));
+            if (protos != s && SSL_set_alpn_protos(filter_ctx->pssl, 
+                                                   (unsigned char *)protos, 
+                                                   s - protos)) {
+                ap_log_cerror(APLOG_MARK, APLOG_WARNING, 0, c, APLOGNO(03310)
+                              "error setting alpn protos from '%s'", alpn_note);
+                ssl_log_ssl_error(SSLLOG_MARK, APLOG_WARNING, server);
+            }
+        }
+#endif /* defined HAVE_TLS_ALPN */
         /*
          * Enable SNI for backend requests. Make sure we don't do it for
          * pure SSLv3 connections, and also prevent IP addresses
@@ -1061,7 +1250,9 @@ static apr_status_t ssl_io_filter_handshake(ssl_filter_ctx_t *filter_ctx)
          * IPv4 and IPv6 addresses are not permitted".)
          */
         if (hostname_note &&
-            sc->proxy->protocol != SSL_PROTOCOL_SSLV3 &&
+#ifndef OPENSSL_NO_SSL3
+            dc->proxy->protocol != SSL_PROTOCOL_SSLV3 &&
+#endif
             apr_ipsubnet_create(&ip, hostname_note, NULL,
                                 c->pool) != APR_SUCCESS) {
             if (SSL_set_tlsext_host_name(filter_ctx->pssl, hostname_note)) {
@@ -1074,8 +1265,8 @@ static apr_status_t ssl_io_filter_handshake(ssl_filter_ctx_t *filter_ctx)
                               "request to '%s'", hostname_note);
                 ssl_log_ssl_error(SSLLOG_MARK, APLOG_WARNING, server);
             }
-	}
-#endif
+        }
+#endif /* defined HAVE_TLSEXT */
 
         if ((n = SSL_connect(filter_ctx->pssl)) <= 0) {
             ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(02003)
@@ -1087,53 +1278,91 @@ static apr_status_t ssl_io_filter_handshake(ssl_filter_ctx_t *filter_ctx)
             return MODSSL_ERROR_BAD_GATEWAY;
         }
 
-        if (sc->proxy_ssl_check_peer_expire != SSL_ENABLED_FALSE) {
-            cert = SSL_get_peer_certificate(filter_ctx->pssl);
+        cert = SSL_get_peer_certificate(filter_ctx->pssl);
+
+        if (dc->proxy->ssl_check_peer_expire != FALSE) {
             if (!cert
                 || (X509_cmp_current_time(
                      X509_get_notBefore(cert)) >= 0)
                 || (X509_cmp_current_time(
                      X509_get_notAfter(cert)) <= 0)) {
+                proxy_ssl_check_peer_ok = FALSE;
                 ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(02004)
                               "SSL Proxy: Peer certificate is expired");
-                if (cert) {
-                    X509_free(cert);
-                }
-                /* ensure that the SSL structures etc are freed, etc: */
-                ssl_filter_io_shutdown(filter_ctx, c, 1);
-                apr_table_setn(c->notes, "SSL_connect_rv", "err");
-                return HTTP_BAD_GATEWAY;
             }
-            X509_free(cert);
         }
-        if ((sc->proxy_ssl_check_peer_cn != SSL_ENABLED_FALSE) &&
+        if ((dc->proxy->ssl_check_peer_name != FALSE) &&
+            ((dc->proxy->ssl_check_peer_cn != FALSE) ||
+             (dc->proxy->ssl_check_peer_name == TRUE)) &&
+            hostname_note) {
+            apr_table_unset(c->notes, "proxy-request-hostname");
+            if (!cert
+                || modssl_X509_match_name(c->pool, cert, hostname_note,
+                                          TRUE, server) == FALSE) {
+                proxy_ssl_check_peer_ok = FALSE;
+                ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(02411)
+                              "SSL Proxy: Peer certificate does not match "
+                              "for hostname %s", hostname_note);
+            }
+        }
+        else if ((dc->proxy->ssl_check_peer_cn == TRUE) &&
             hostname_note) {
             const char *hostname;
+            int match = 0;
 
             hostname = ssl_var_lookup(NULL, server, c, NULL,
                                       "SSL_CLIENT_S_DN_CN");
             apr_table_unset(c->notes, "proxy-request-hostname");
-            if (strcasecmp(hostname, hostname_note)) {
+
+            /* Do string match or simplest wildcard match if that
+             * fails. */
+            match = strcasecmp(hostname, hostname_note) == 0;
+            if (!match && strncmp(hostname, "*.", 2) == 0) {
+                const char *p = ap_strchr_c(hostname_note, '.');
+                
+                match = p && strcasecmp(p, hostname + 1) == 0;
+            }
+
+            if (!match) {
+                proxy_ssl_check_peer_ok = FALSE;
                 ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c, APLOGNO(02005)
                               "SSL Proxy: Peer certificate CN mismatch:"
                               " Certificate CN: %s Requested hostname: %s",
                               hostname, hostname_note);
-                /* ensure that the SSL structures etc are freed, etc: */
-                ssl_filter_io_shutdown(filter_ctx, c, 1);
-                apr_table_setn(c->notes, "SSL_connect_rv", "err");
-                return HTTP_BAD_GATEWAY;
             }
+        }
+
+        if (proxy_ssl_check_peer_ok == TRUE) {
+            /* another chance to fail */
+            post_handshake_rc = ssl_run_proxy_post_handshake(c, filter_ctx->pssl);
+        }
+
+        if (cert) {
+            X509_free(cert);
+        }
+
+        if (proxy_ssl_check_peer_ok != TRUE
+            || (post_handshake_rc != OK && post_handshake_rc != DECLINED)) {
+            /* ensure that the SSL structures etc are freed, etc: */
+            ssl_filter_io_shutdown(filter_ctx, c, 1);
+            apr_table_setn(c->notes, "SSL_connect_rv", "err");
+            return MODSSL_ERROR_BAD_GATEWAY;
         }
 
         apr_table_setn(c->notes, "SSL_connect_rv", "ok");
         return APR_SUCCESS;
     }
 
+    /* We rely on SSL_get_error() after the accept, which requires an empty
+     * error queue before the accept in order to work properly.
+     */
+    ERR_clear_error();
+
     if ((n = SSL_accept(filter_ctx->pssl)) <= 0) {
         bio_filter_in_ctx_t *inctx = (bio_filter_in_ctx_t *)
-                                     (filter_ctx->pbioRead->ptr);
+                                     BIO_get_data(filter_ctx->pbioRead);
         bio_filter_out_ctx_t *outctx = (bio_filter_out_ctx_t *)
-                                       (filter_ctx->pbioWrite->ptr);
+                                       BIO_get_data(filter_ctx->pbioWrite);
         apr_status_t rc = inctx->rc ? inctx->rc : outctx->rc ;
         ssl_err = SSL_get_error(filter_ctx->pssl, n);
 
@@ -1215,6 +1444,11 @@ static apr_status_t ssl_io_filter_handshake(ssl_filter_ctx_t *filter_ctx)
                           "\"SSLVerifyClient optional_no_ca\" "
                           "configuration");
             ssl_log_ssl_error(SSLLOG_MARK, APLOG_INFO, server);
+
+            /* on session resumption ssl_callback_SSLVerify() 
+             * will not be called, therefore we have to set it here
+             */
+            sslconn->verify_info = "GENEROUS";
         }
         else {
             const char *error = sslconn->verify_error ?
@@ -1270,18 +1504,36 @@ static apr_status_t ssl_io_filter_input(ap_filter_t *f,
     const char *start = inctx->buffer; /* start of block to return */
     apr_size_t len = sizeof(inctx->buffer); /* length of block to return */
     int is_init = (mode == AP_MODE_INIT);
+    apr_bucket *bucket;
 
     if (f->c->aborted) {
         /* XXX: Ok, if we aborted, we ARE at the EOS.  We also have
          * aborted.  This 'double protection' is probably redundant,
          * but also effective against just about anything.
          */
-        apr_bucket *bucket = apr_bucket_eos_create(f->c->bucket_alloc);
+        bucket = apr_bucket_eos_create(f->c->bucket_alloc);
         APR_BRIGADE_INSERT_TAIL(bb, bucket);
         return APR_ECONNABORTED;
     }
 
     if (!inctx->ssl) {
+        SSLConnRec *sslconn = myConnConfig(f->c);
+        if (sslconn->non_ssl_request == NON_SSL_SEND_REQLINE) {
+            bucket = HTTP_ON_HTTPS_PORT_BUCKET(f->c->bucket_alloc);
+            APR_BRIGADE_INSERT_TAIL(bb, bucket);
+            if (mode != AP_MODE_SPECULATIVE) {
+                sslconn->non_ssl_request = NON_SSL_SEND_HDR_SEP;
+            }
+            return APR_SUCCESS;
+        }
+        if (sslconn->non_ssl_request == NON_SSL_SEND_HDR_SEP) {
+            bucket = apr_bucket_immortal_create(CRLF, 2, f->c->bucket_alloc);
+            APR_BRIGADE_INSERT_TAIL(bb, bucket);
+            if (mode != AP_MODE_SPECULATIVE) {
+                sslconn->non_ssl_request = NON_SSL_SET_ERROR_MSG;
+            }
+            return APR_SUCCESS;
+        }
         return ap_get_brigade(f->next, bb, mode, block, readbytes);
     }
 
@@ -1300,7 +1552,7 @@ static apr_status_t ssl_io_filter_input(ap_filter_t *f,
      * rather than have SSLEngine On configured.
      */
     if ((status = ssl_io_filter_handshake(inctx->filter_ctx)) != APR_SUCCESS) {
-        return ssl_io_filter_error(f, bb, status);
+        return ssl_io_filter_error(f, bb, status, is_init);
     }
 
     if (is_init) {
@@ -1354,12 +1606,12 @@ static apr_status_t ssl_io_filter_input(ap_filter_t *f,
 
     /* Handle custom errors. */
     if (status != APR_SUCCESS) {
-        return ssl_io_filter_error(f, bb, status);
+        return ssl_io_filter_error(f, bb, status, 0);
     }
 
     /* Create a transient bucket out of the decrypted data. */
     if (len > 0) {
-        apr_bucket *bucket =
+        bucket =
             apr_bucket_transient_create(start, len, f->c->bucket_alloc);
         APR_BRIGADE_INSERT_TAIL(bb, bucket);
     }
@@ -1389,7 +1641,7 @@ struct coalesce_ctx {
 static apr_status_t ssl_io_filter_coalesce(ap_filter_t *f,
                                            apr_bucket_brigade *bb)
 {
-    apr_bucket *e, *last = NULL;
+    apr_bucket *e, *upto;
     apr_size_t bytes = 0;
     struct coalesce_ctx *ctx = f->ctx;
     unsigned count = 0;
@@ -1416,19 +1668,20 @@ static apr_status_t ssl_io_filter_coalesce(ap_filter_t *f,
              && (ctx == NULL
                  || bytes + ctx->bytes + e->length < COALESCE_BYTES);
          e = APR_BUCKET_NEXT(e)) {
-        last = e;
         if (e->length) count++; /* don't count zero-length buckets */
         bytes += e->length;
     }
+    upto = e;
 
     /* Coalesce the prefix, if:
      * a) more than one bucket is found to coalesce, or
      * b) the brigade contains only a single data bucket, or
-     * c)
+     * c) the data bucket is not last but we have buffered data already.
      */
     if (bytes > 0
         && (count > 1
-            || (count == 1 && APR_BUCKET_NEXT(last) == APR_BRIGADE_SENTINEL(bb)))) {
+            || (upto == APR_BRIGADE_SENTINEL(bb))
+            || (ctx && ctx->bytes > 0))) {
         /* If coalescing some bytes, ensure a context has been
          * created. */
         if (!ctx) {
@@ -1445,7 +1698,7 @@ static apr_status_t ssl_io_filter_coalesce(ap_filter_t *f,
          * normal path of sending the buffer + remaining buckets in
          * brigade.  */
         e = APR_BRIGADE_FIRST(bb);
-        while (e != last) {
+        while (e != upto) {
             apr_size_t len;
             const char *data;
             apr_bucket *next;
@@ -1497,8 +1750,6 @@ static apr_status_t ssl_io_filter_coalesce(ap_filter_t *f,
      * the filter stack, first prepending anything that has been
      * coalesced. */
     if (ctx && ctx->bytes) {
-        apr_bucket *e;
-
         ap_log_cerror(APLOG_MARK, APLOG_TRACE4, 0, f->c,
                       "coalesce: passing on %" APR_SIZE_T_FMT " bytes", ctx->bytes);
 
@@ -1517,6 +1768,7 @@ static apr_status_t ssl_io_filter_output(ap_filter_t *f,
     ssl_filter_ctx_t *filter_ctx = f->ctx;
     bio_filter_in_ctx_t *inctx;
     bio_filter_out_ctx_t *outctx;
+    apr_bucket *flush_upto = NULL;
     apr_read_type_e rblock = APR_NONBLOCK_READ;
 
     if (f->c->aborted) {
@@ -1524,13 +1776,16 @@ static apr_status_t ssl_io_filter_output(ap_filter_t *f,
         return APR_ECONNABORTED;
     }
 
+    /* Reinstate any buffered content */
+    ap_filter_reinstate_brigade(f, bb, &flush_upto);
+
     if (!filter_ctx->pssl) {
         /* ssl_filter_io_shutdown was called */
         return ap_pass_brigade(f->next, bb);
     }
 
-    inctx = (bio_filter_in_ctx_t *)filter_ctx->pbioRead->ptr;
-    outctx = (bio_filter_out_ctx_t *)filter_ctx->pbioWrite->ptr;
+    inctx = (bio_filter_in_ctx_t *)BIO_get_data(filter_ctx->pbioRead);
+    outctx = (bio_filter_out_ctx_t *)BIO_get_data(filter_ctx->pbioWrite);
 
     /* When we are the writer, we must initialize the inctx
      * mode so that we block for any required ssl input, because
@@ -1540,52 +1795,44 @@ static apr_status_t ssl_io_filter_output(ap_filter_t *f,
     inctx->block = APR_BLOCK_READ;
 
     if ((status = ssl_io_filter_handshake(filter_ctx)) != APR_SUCCESS) {
-        return ssl_io_filter_error(f, bb, status);
+        return ssl_io_filter_error(f, bb, status, 0);
     }
 
-    while (!APR_BRIGADE_EMPTY(bb)) {
+    while (!APR_BRIGADE_EMPTY(bb) && status == APR_SUCCESS) {
         apr_bucket *bucket = APR_BRIGADE_FIRST(bb);
 
-        /* If it is a flush or EOS, we need to pass this down.
-         * These types do not require translation by OpenSSL.
-         */
-        if (APR_BUCKET_IS_EOS(bucket) || APR_BUCKET_IS_FLUSH(bucket)) {
-            if (bio_filter_out_flush(filter_ctx->pbioWrite) < 0) {
-                status = outctx->rc;
+        /* if the core has set aside data, back off and try later */
+        if (!flush_upto) {
+            if (ap_filter_should_yield(f)) {
                 break;
-            }
-
-            if (APR_BUCKET_IS_EOS(bucket)) {
-                /*
-                 * By definition, nothing can come after EOS.
-                 * which also means we can pass the rest of this brigade
-                 * without creating a new one since it only contains the
-                 * EOS bucket.
-                 */
-
-                if ((status = ap_pass_brigade(f->next, bb)) != APR_SUCCESS) {
-                    return status;
-                }
-                break;
-            }
-            else {
-                /* bio_filter_out_flush() already passed down a flush bucket
-                 * if there was any data to be flushed.
-                 */
-                apr_bucket_delete(bucket);
             }
         }
-        else if (AP_BUCKET_IS_EOC(bucket)) {
-            /* The EOC bucket indicates connection closure, so SSL
-             * shutdown must now be performed.  */
-            ssl_filter_io_shutdown(filter_ctx, f->c, 0);
-            if ((status = ap_pass_brigade(f->next, bb)) != APR_SUCCESS) {
-                return status;
+        else if (flush_upto == bucket) {
+            flush_upto = NULL;
+        }
+
+        if (APR_BUCKET_IS_METADATA(bucket)) {
+            /* Pass through metadata buckets untouched.  EOC is
+             * special; terminate the SSL layer first. */
+            if (AP_BUCKET_IS_EOC(bucket)) {
+                ssl_filter_io_shutdown(filter_ctx, f->c, 0);
             }
-            break;
+
+            AP_DEBUG_ASSERT(APR_BRIGADE_EMPTY(outctx->bb));
+
+            /* Metadata buckets are passed one per brigade; it might
+             * be more efficient (but also more complex) to use
+             * outctx->bb as a true buffer and interleave these with
+             * data buckets. */
+            APR_BUCKET_REMOVE(bucket);
+            APR_BRIGADE_INSERT_HEAD(outctx->bb, bucket);
+            status = ap_pass_brigade(f->next, outctx->bb);
+            if (status == APR_SUCCESS && f->c->aborted)
+                status = APR_ECONNRESET;
+            apr_brigade_cleanup(outctx->bb);
         }
         else {
-            /* filter output */
+            /* Filter a data bucket. */
             const char *data;
             apr_size_t len;
 
@@ -1598,7 +1845,9 @@ static apr_status_t ssl_io_filter_output(ap_filter_t *f,
                     break;
                 }
                 rblock = APR_BLOCK_READ;
-                continue; /* and try again with a blocking read. */
+                /* and try again with a blocking read. */
+                status = APR_SUCCESS;
+                continue;
             }
 
             rblock = APR_NONBLOCK_READ;
@@ -1609,11 +1858,12 @@ static apr_status_t ssl_io_filter_output(ap_filter_t *f,
 
             status = ssl_filter_write(f, data, len);
             apr_bucket_delete(bucket);
-
-            if (status != APR_SUCCESS) {
-                break;
-            }
         }
+
+    }
+
+    if (APR_STATUS_IS_EOF(status) || (status == APR_SUCCESS)) {
+        return ap_filter_setaside_brigade(f, bb);
     }
 
     return status;
@@ -1657,7 +1907,7 @@ int ssl_io_buffer_fill(request_rec *r, apr_size_t maxlen)
         if (rv) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, APLOGNO(02015)
                           "could not read request body for SSL buffer");
-            return HTTP_INTERNAL_SERVER_ERROR;
+            return ap_map_http_request_error(rv, HTTP_INTERNAL_SERVER_ERROR);
         }
 
         /* Iterate through the returned brigade: setaside each bucket
@@ -1735,6 +1985,7 @@ static apr_status_t ssl_io_filter_buffer(ap_filter_t *f,
 {
     struct modssl_buffer_ctx *ctx = f->ctx;
     apr_status_t rv;
+    apr_bucket *e, *d;
 
     ap_log_cerror(APLOG_MARK, APLOG_TRACE4, 0, f->c,
                   "read from buffered SSL brigade, mode %d, "
@@ -1759,8 +2010,6 @@ static apr_status_t ssl_io_filter_buffer(ap_filter_t *f,
     }
 
     if (mode == AP_MODE_READBYTES) {
-        apr_bucket *e;
-
         /* Partition the buffered brigade. */
         rv = apr_brigade_partition(ctx->bb, bytes, &e);
         if (rv && rv != APR_INCOMPLETE) {
@@ -1775,7 +2024,7 @@ static apr_status_t ssl_io_filter_buffer(ap_filter_t *f,
         if (rv == APR_INCOMPLETE) {
             APR_BRIGADE_CONCAT(bb, ctx->bb);
         } else {
-            apr_bucket *d = APR_BRIGADE_FIRST(ctx->bb);
+            d = APR_BRIGADE_FIRST(ctx->bb);
 
             e = APR_BUCKET_PREV(e);
 
@@ -1802,7 +2051,7 @@ static apr_status_t ssl_io_filter_buffer(ap_filter_t *f,
     }
 
     if (APR_BRIGADE_EMPTY(ctx->bb)) {
-        apr_bucket *e = APR_BRIGADE_LAST(bb);
+        e = APR_BRIGADE_LAST(bb);
 
         /* Ensure that the brigade is terminated by an EOS if the
          * buffered request body has been entirely consumed. */
@@ -1832,8 +2081,12 @@ static void ssl_io_input_add_filter(ssl_filter_ctx_t *filter_ctx, conn_rec *c,
 
     filter_ctx->pInputFilter = ap_add_input_filter(ssl_io_filter, inctx, r, c);
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     filter_ctx->pbioRead = BIO_new(&bio_filter_in_method);
-    filter_ctx->pbioRead->ptr = (void *)inctx;
+#else
+    filter_ctx->pbioRead = BIO_new(bio_filter_in_method);
+#endif
+    BIO_set_data(filter_ctx->pbioRead, (void *)inctx);
 
     inctx->ssl = ssl;
     inctx->bio_out = filter_ctx->pbioWrite;
@@ -1863,11 +2116,19 @@ void ssl_io_filter_init(conn_rec *c, request_rec *r, SSL *ssl)
     filter_ctx->pOutputFilter   = ap_add_output_filter(ssl_io_filter,
                                                        filter_ctx, r, c);
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     filter_ctx->pbioWrite       = BIO_new(&bio_filter_out_method);
-    filter_ctx->pbioWrite->ptr  = (void *)bio_filter_out_ctx_new(filter_ctx, c);
+#else
+    filter_ctx->pbioWrite       = BIO_new(bio_filter_out_method);
+#endif
+    BIO_set_data(filter_ctx->pbioWrite, (void *)bio_filter_out_ctx_new(filter_ctx, c));
 
-    /* We insert a clogging input filter. Let the core know. */
-    c->clogging_input_filters = 1;
+    /* write is non blocking for the benefit of async mpm */
+    if (c->cs) {
+        BIO_set_nbio(filter_ctx->pbioWrite, 1);
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE7, 0, c,
+                      "Enabling non-blocking writes");
+    }
 
     ssl_io_input_add_filter(filter_ctx, c, r, ssl);
 
@@ -1878,8 +2139,14 @@ void ssl_io_filter_init(conn_rec *c, request_rec *r, SSL *ssl)
                               ssl_io_filter_cleanup, apr_pool_cleanup_null);
 
     if (APLOG_CS_IS_LEVEL(c, mySrvFromConn(c), APLOG_TRACE4)) {
-        BIO_set_callback(SSL_get_rbio(ssl), ssl_io_data_cb);
-        BIO_set_callback_arg(SSL_get_rbio(ssl), (void *)ssl);
+        BIO *rbio = SSL_get_rbio(ssl),
+            *wbio = SSL_get_wbio(ssl);
+        BIO_set_callback(rbio, ssl_io_data_cb);
+        BIO_set_callback_arg(rbio, (void *)ssl);
+        if (wbio && wbio != rbio) {
+            BIO_set_callback(wbio, ssl_io_data_cb);
+            BIO_set_callback_arg(wbio, (void *)ssl);
+        }
     }
 
     return;
@@ -1904,9 +2171,8 @@ void ssl_io_filter_register(apr_pool_t *p)
 
 #define DUMP_WIDTH 16
 
-static void ssl_io_data_dump(server_rec *srvr,
-                             const char *s,
-                             long len)
+static void ssl_io_data_dump(conn_rec *c, server_rec *s,
+                             const char *b, long len)
 {
     char buf[256];
     char tmp[64];
@@ -1914,12 +2180,12 @@ static void ssl_io_data_dump(server_rec *srvr,
     unsigned char ch;
 
     trunc = 0;
-    for(; (len > 0) && ((s[len-1] == ' ') || (s[len-1] == '\0')); len--)
+    for(; (len > 0) && ((b[len-1] == ' ') || (b[len-1] == '\0')); len--)
         trunc++;
     rows = (len / DUMP_WIDTH);
     if ((rows * DUMP_WIDTH) < len)
         rows++;
-    ap_log_error(APLOG_MARK, APLOG_TRACE7, 0, srvr,
+    ap_log_cserror(APLOG_MARK, APLOG_TRACE7, 0, c, s,
             "+-------------------------------------------------------------------------+");
     for(i = 0 ; i< rows; i++) {
 #if APR_CHARSET_EBCDIC
@@ -1929,7 +2195,7 @@ static void ssl_io_data_dump(server_rec *srvr,
             j = len % DUMP_WIDTH;
         if (j == 0)
             j = DUMP_WIDTH;
-        memcpy(ebcdic_text,(char *)(s) + i * DUMP_WIDTH, j);
+        memcpy(ebcdic_text,(char *)(b) + i * DUMP_WIDTH, j);
         ap_xlate_proto_from_ascii(ebcdic_text, j);
 #endif /* APR_CHARSET_EBCDIC */
         apr_snprintf(tmp, sizeof(tmp), "| %04x: ", i * DUMP_WIDTH);
@@ -1938,7 +2204,7 @@ static void ssl_io_data_dump(server_rec *srvr,
             if (((i * DUMP_WIDTH) + j) >= len)
                 apr_cpystrn(buf+strlen(buf), "   ", sizeof(buf)-strlen(buf));
             else {
-                ch = ((unsigned char)*((char *)(s) + i * DUMP_WIDTH + j)) & 0xff;
+                ch = ((unsigned char)*((char *)(b) + i * DUMP_WIDTH + j)) & 0xff;
                 apr_snprintf(tmp, sizeof(tmp), "%02x%c", ch , j==7 ? '-' : ' ');
                 apr_cpystrn(buf+strlen(buf), tmp, sizeof(buf)-strlen(buf));
             }
@@ -1948,7 +2214,7 @@ static void ssl_io_data_dump(server_rec *srvr,
             if (((i * DUMP_WIDTH) + j) >= len)
                 apr_cpystrn(buf+strlen(buf), " ", sizeof(buf)-strlen(buf));
             else {
-                ch = ((unsigned char)*((char *)(s) + i * DUMP_WIDTH + j)) & 0xff;
+                ch = ((unsigned char)*((char *)(b) + i * DUMP_WIDTH + j)) & 0xff;
 #if APR_CHARSET_EBCDIC
                 apr_snprintf(tmp, sizeof(tmp), "%c", (ch >= 0x20 && ch <= 0x7F) ? ebcdic_text[j] : '.');
 #else /* APR_CHARSET_EBCDIC */
@@ -1958,13 +2224,12 @@ static void ssl_io_data_dump(server_rec *srvr,
             }
         }
         apr_cpystrn(buf+strlen(buf), " |", sizeof(buf)-strlen(buf));
-        ap_log_error(APLOG_MARK, APLOG_TRACE7, 0, srvr,
-                     "%s", buf);
+        ap_log_cserror(APLOG_MARK, APLOG_TRACE7, 0, c, s, "%s", buf);
     }
     if (trunc > 0)
-        ap_log_error(APLOG_MARK, APLOG_TRACE7, 0, srvr,
+        ap_log_cserror(APLOG_MARK, APLOG_TRACE7, 0, c, s,
                 "| %04ld - <SPACES/NULS>", len + trunc);
-    ap_log_error(APLOG_MARK, APLOG_TRACE7, 0, srvr,
+    ap_log_cserror(APLOG_MARK, APLOG_TRACE7, 0, c, s,
             "+-------------------------------------------------------------------------+");
     return;
 }
@@ -1986,20 +2251,26 @@ long ssl_io_data_cb(BIO *bio, int cmd,
     if (   cmd == (BIO_CB_WRITE|BIO_CB_RETURN)
         || cmd == (BIO_CB_READ |BIO_CB_RETURN) ) {
         if (rc >= 0) {
+            const char *dump = "";
+            if (APLOG_CS_IS_LEVEL(c, s, APLOG_TRACE7)) {
+                if (argp != NULL)
+                    dump = "(BIO dump follows)";
+                else
+                    dump = "(Oops, no memory buffer?)";
+            }
             ap_log_cserror(APLOG_MARK, APLOG_TRACE4, 0, c, s,
                     "%s: %s %ld/%d bytes %s BIO#%pp [mem: %pp] %s",
-                    SSL_LIBRARY_NAME,
+                    MODSSL_LIBRARY_NAME,
                     (cmd == (BIO_CB_WRITE|BIO_CB_RETURN) ? "write" : "read"),
                     rc, argi, (cmd == (BIO_CB_WRITE|BIO_CB_RETURN) ? "to" : "from"),
-                    bio, argp,
-                    (argp != NULL ? "(BIO dump follows)" : "(Oops, no memory buffer?)"));
-            if ((argp != NULL) && APLOG_CS_IS_LEVEL(c, s, APLOG_TRACE7))
-                ssl_io_data_dump(s, argp, rc);
+                    bio, argp, dump);
+            if (*dump != '\0' && argp != NULL)
+                ssl_io_data_dump(c, s, argp, rc);
         }
         else {
             ap_log_cserror(APLOG_MARK, APLOG_TRACE4, 0, c, s,
                     "%s: I/O error, %d bytes expected to %s on BIO#%pp [mem: %pp]",
-                    SSL_LIBRARY_NAME, argi,
+                    MODSSL_LIBRARY_NAME, argi,
                     (cmd == (BIO_CB_WRITE|BIO_CB_RETURN) ? "write" : "read"),
                     bio, argp);
         }

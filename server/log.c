@@ -53,6 +53,8 @@
 #include "http_main.h"
 #include "util_time.h"
 #include "ap_mpm.h"
+#include "ap_provider.h"
+#include "ap_listen.h"
 
 #if HAVE_GETTID
 #include <sys/syscall.h>
@@ -74,71 +76,6 @@ APR_HOOK_STRUCT(
 )
 
 int AP_DECLARE_DATA ap_default_loglevel = DEFAULT_LOGLEVEL;
-
-#ifdef HAVE_SYSLOG
-
-static const TRANS facilities[] = {
-    {"auth",    LOG_AUTH},
-#ifdef LOG_AUTHPRIV
-    {"authpriv",LOG_AUTHPRIV},
-#endif
-#ifdef LOG_CRON
-    {"cron",    LOG_CRON},
-#endif
-#ifdef LOG_DAEMON
-    {"daemon",  LOG_DAEMON},
-#endif
-#ifdef LOG_FTP
-    {"ftp", LOG_FTP},
-#endif
-#ifdef LOG_KERN
-    {"kern",    LOG_KERN},
-#endif
-#ifdef LOG_LPR
-    {"lpr", LOG_LPR},
-#endif
-#ifdef LOG_MAIL
-    {"mail",    LOG_MAIL},
-#endif
-#ifdef LOG_NEWS
-    {"news",    LOG_NEWS},
-#endif
-#ifdef LOG_SYSLOG
-    {"syslog",  LOG_SYSLOG},
-#endif
-#ifdef LOG_USER
-    {"user",    LOG_USER},
-#endif
-#ifdef LOG_UUCP
-    {"uucp",    LOG_UUCP},
-#endif
-#ifdef LOG_LOCAL0
-    {"local0",  LOG_LOCAL0},
-#endif
-#ifdef LOG_LOCAL1
-    {"local1",  LOG_LOCAL1},
-#endif
-#ifdef LOG_LOCAL2
-    {"local2",  LOG_LOCAL2},
-#endif
-#ifdef LOG_LOCAL3
-    {"local3",  LOG_LOCAL3},
-#endif
-#ifdef LOG_LOCAL4
-    {"local4",  LOG_LOCAL4},
-#endif
-#ifdef LOG_LOCAL5
-    {"local5",  LOG_LOCAL5},
-#endif
-#ifdef LOG_LOCAL6
-    {"local6",  LOG_LOCAL6},
-#endif
-#ifdef LOG_LOCAL7
-    {"local7",  LOG_LOCAL7},
-#endif
-    {NULL,      -1},
-};
-#endif
 
 static const TRANS priorities[] = {
     {"emerg",   APLOG_EMERG},
@@ -331,10 +268,8 @@ static int log_child(apr_pool_t *p, const char *progname,
         && ((rc = apr_procattr_child_errfn_set(procattr, log_child_errfn))
                 == APR_SUCCESS)) {
         char **args;
-        const char *pname;
 
         apr_tokenize_to_argv(progname, &args, p);
-        pname = apr_pstrdup(p, args[0]);
         procnew = (apr_proc_t *)apr_pcalloc(p, sizeof(*procnew));
 
         if (dummy_stderr) {
@@ -342,8 +277,10 @@ static int log_child(apr_pool_t *p, const char *progname,
                 rc = apr_procattr_child_err_set(procattr, errfile, NULL);
         }
 
-        rc = apr_proc_create(procnew, pname, (const char * const *)args,
-                             NULL, procattr, p);
+        if (rc == APR_SUCCESS) {
+            rc = apr_proc_create(procnew, args[0], (const char * const *)args,
+                                 NULL, procattr, p);
+        }
 
         if (rc == APR_SUCCESS) {
             apr_pool_note_subprocess(p, procnew, APR_KILL_AFTER_TIMEOUT);
@@ -395,29 +332,14 @@ static int open_error_log(server_rec *s, int is_main, apr_pool_t *p)
 
         s->error_log = dummy;
     }
-
-#ifdef HAVE_SYSLOG
-    else if (!strncasecmp(s->error_fname, "syslog", 6)) {
-        if ((fname = strchr(s->error_fname, ':'))) {
-            const TRANS *fac;
-
-            fname++;
-            for (fac = facilities; fac->t_name; fac++) {
-                if (!strcasecmp(fname, fac->t_name)) {
-                    openlog(ap_server_argv0, LOG_NDELAY|LOG_CONS|LOG_PID,
-                            fac->t_val);
-                    s->error_log = NULL;
-                    return OK;
-                }
-            }
-        }
-        else {
-            openlog(ap_server_argv0, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL7);
-        }
-
+    else if (s->errorlog_provider) {
+        s->errorlog_provider_handle = s->errorlog_provider->init(p, s);
         s->error_log = NULL;
+        if (!s->errorlog_provider_handle) {
+            /* provider must log something to the console */
+            return DONE;
+        }
     }
-#endif
     else {
         fname = ap_server_root_relative(p, s->error_fname);
         if (!fname) {
@@ -499,8 +421,8 @@ int ap_open_logs(apr_pool_t *pconf, apr_pool_t *p /* plog */,
              * as stdin. This in turn would prevent the piped logger from
              * exiting.
              */
-             apr_file_close(s_main->error_log);
-             s_main->error_log = stderr_log;
+            apr_file_close(s_main->error_log);
+            s_main->error_log = stderr_log;
         }
     }
     /* note that stderr may still need to be replaced with something
@@ -509,9 +431,19 @@ int ap_open_logs(apr_pool_t *pconf, apr_pool_t *p /* plog */,
      * XXX: This is BS - /dev/null is non-portable
      *      errno-as-apr_status_t is also non-portable
      */
-    if (replace_stderr && freopen("/dev/null", "w", stderr) == NULL) {
-        ap_log_error(APLOG_MARK, APLOG_CRIT, errno, s_main, APLOGNO(00093)
-                     "unable to replace stderr with /dev/null");
+
+#ifdef WIN32
+#define NULL_DEVICE "nul"
+#else
+#define NULL_DEVICE "/dev/null"
+#endif
+
+    if (replace_stderr) {
+        if (freopen(NULL_DEVICE, "w", stderr) == NULL) {
+            ap_log_error(APLOG_MARK, APLOG_CRIT, errno, s_main, APLOGNO(00093)
+                        "unable to replace stderr with %s", NULL_DEVICE);
+        }
+        stderr_log = NULL;
     }
 
     for (virt = s_main->next; virt; virt = virt->next) {
@@ -531,6 +463,18 @@ int ap_open_logs(apr_pool_t *pconf, apr_pool_t *p /* plog */,
             else {
                 virt->error_log = q->error_log;
             }
+        }
+        else if (virt->errorlog_provider) {
+            /* separately-configured vhost-specific provider */
+            if (open_error_log(virt, 0, p) != OK) {
+                return DONE;
+            }
+        }
+        else if (s_main->errorlog_provider) {
+            /* inherit provider from s_main */
+            virt->errorlog_provider = s_main->errorlog_provider;
+            virt->errorlog_provider_handle = s_main->errorlog_provider_handle;
+            virt->error_log = NULL;
         }
         else {
             virt->error_log = s_main->error_log;
@@ -563,10 +507,10 @@ static int log_remote_address(const ap_errorlog_info *info, const char *arg,
 {
     if (info->r && !(arg && *arg == 'c'))
         return apr_snprintf(buf, buflen, "%s:%d", info->r->useragent_ip,
-                            info->r->useragent_addr->port);
+                            info->r->useragent_addr ? info->r->useragent_addr->port : 0);
     else if (info->c)
         return apr_snprintf(buf, buflen, "%s:%d", info->c->client_ip,
-                            info->c->client_addr->port);
+                            info->c->client_addr ? info->c->client_addr->port : 0);
     else
         return 0;
 }
@@ -619,7 +563,7 @@ static int log_ctime(const ap_errorlog_info *info, const char *arg,
     int time_len = buflen;
     int option = AP_CTIME_OPTION_NONE;
 
-    while(arg && *arg) {
+    while (arg && *arg) {
         switch (*arg) {
             case 'u':   option |= AP_CTIME_OPTION_USEC;
                         break;
@@ -652,7 +596,7 @@ static int log_log_id(const ap_errorlog_info *info, const char *arg,
      * c: log conn log id if available and not a once-per-request log line
      * else: log request log id if available
      */
-    if (arg && !strcasecmp(arg, "c")) {
+    if (arg && (*arg == 'c' || *arg == 'C')) {
         if (info->c && (*arg != 'C' || !info->r)) {
             return cpystrn(buf, info->c->log_id, buflen);
         }
@@ -904,7 +848,7 @@ AP_DECLARE(void) ap_register_log_hooks(apr_pool_t *p)
 
 /*
  * This is used if no error log format is defined and during startup.
- * It automatically omits the timestamp if logging to syslog.
+ * It automatically omits the timestamp if logging using provider.
  */
 static int do_errorlog_default(const ap_errorlog_info *info, char *buf,
                                int buflen, int *errstr_start, int *errstr_end,
@@ -917,7 +861,7 @@ static int do_errorlog_default(const ap_errorlog_info *info, char *buf,
     char scratch[MAX_STRING_LEN];
 #endif
 
-    if (!info->using_syslog && !info->startup) {
+    if (!info->using_provider && !info->startup) {
         buf[len++] = '[';
         len += log_ctime(info, "u", buf + len, buflen - len);
         buf[len++] = ']';
@@ -968,12 +912,14 @@ static int do_errorlog_default(const ap_errorlog_info *info, char *buf,
     if (info->r) {
         len += apr_snprintf(buf + len, buflen - len,
                             info->r->connection->sbh ? "[client %s:%d] " : "[remote %s:%d] ",
-                            info->r->useragent_ip, info->r->useragent_addr->port);
+                            info->r->useragent_ip,
+                            info->r->useragent_addr ? info->r->useragent_addr->port : 0);
     }
     else if (info->c) {
         len += apr_snprintf(buf + len, buflen - len,
                             info->c->sbh ? "[client %s:%d] " : "[remote %s:%d] ",
-                            info->c->client_ip, info->c->client_addr->port);
+                            info->c->client_ip,
+                            info->c->client_addr ? info->c->client_addr->port : 0);
     }
 
     /* the actual error message */
@@ -1013,6 +959,7 @@ static int do_errorlog_format(apr_array_header_t *fmt, ap_errorlog_info *info,
     int skipping = 0;
     ap_errorlog_format_item *items = (ap_errorlog_format_item *)fmt->elts;
 
+    AP_DEBUG_ASSERT(fmt->nelts > 0);
     for (i = 0; i < fmt->nelts; ++i) {
         ap_errorlog_format_item *item = &items[i];
         if (item->flags & AP_ERRORLOG_FLAG_FIELD_SEP) {
@@ -1073,21 +1020,9 @@ static int do_errorlog_format(apr_array_header_t *fmt, ap_errorlog_info *info,
 static void write_logline(char *errstr, apr_size_t len, apr_file_t *logf,
                           int level)
 {
-    /* NULL if we are logging to syslog */
-    if (logf) {
-        /* Truncate for the terminator (as apr_snprintf does) */
-        if (len > MAX_STRING_LEN - sizeof(APR_EOL_STR)) {
-            len = MAX_STRING_LEN - sizeof(APR_EOL_STR);
-        }
-        strcpy(errstr + len, APR_EOL_STR);
-        apr_file_puts(errstr, logf);
-        apr_file_flush(logf);
-    }
-#ifdef HAVE_SYSLOG
-    else {
-        syslog(level < LOG_PRIMASK ? level : APLOG_DEBUG, "%s", errstr);
-    }
-#endif
+
+    apr_file_puts(errstr, logf);
+    apr_file_flush(logf);
 }
 
 static void log_error_core(const char *file, int line, int module_index,
@@ -1103,6 +1038,8 @@ static void log_error_core(const char *file, int line, int module_index,
     const request_rec *rmain = NULL;
     core_server_config *sconf = NULL;
     ap_errorlog_info info;
+    ap_errorlog_provider *errorlog_provider = NULL;
+    void *errorlog_provider_handle = NULL;
 
     /* do we need to log once-per-req or once-per-conn info? */
     int log_conn_info = 0, log_req_info = 0;
@@ -1110,7 +1047,8 @@ static void log_error_core(const char *file, int line, int module_index,
     int done = 0;
     int line_number = 0;
 
-    if (r && r->connection) {
+    if (r) {
+        AP_DEBUG_ASSERT(r->connection != NULL);
         c = r->connection;
     }
 
@@ -1128,32 +1066,30 @@ static void log_error_core(const char *file, int line, int module_index,
 #endif
 
         logf = stderr_log;
+        if (!logf && ap_server_conf && ap_server_conf->errorlog_provider) {
+            errorlog_provider = ap_server_conf->errorlog_provider;
+            errorlog_provider_handle = ap_server_conf->errorlog_provider_handle;
+        }
     }
     else {
         int configured_level = r ? ap_get_request_module_loglevel(r, module_index)        :
                                c ? ap_get_conn_server_module_loglevel(c, s, module_index) :
                                    ap_get_server_module_loglevel(s, module_index);
-        if (s->error_log) {
-            /*
-             * If we are doing normal logging, don't log messages that are
-             * above the module's log level unless it is a startup/shutdown notice
-             */
-            if ((level_and_mask != APLOG_NOTICE)
-                && (level_and_mask > configured_level)) {
-                return;
-            }
+        /*
+         * If we are doing normal logging, don't log messages that are
+         * above the module's log level unless it is a startup/shutdown notice
+         */
+        if ((level_and_mask != APLOG_NOTICE)
+            && (level_and_mask > configured_level)) {
+            return;
+        }
 
+        if (s->error_log) {
             logf = s->error_log;
         }
-        else {
-            /*
-             * If we are doing syslog logging, don't log messages that are
-             * above the module's log level (including a startup/shutdown notice)
-             */
-            if (level_and_mask > configured_level) {
-                return;
-            }
-        }
+
+        errorlog_provider = s->errorlog_provider;
+        errorlog_provider_handle = s->errorlog_provider_handle;
 
         /* the faked server_rec from mod_cgid does not have s->module_config */
         if (s->module_config) {
@@ -1183,13 +1119,22 @@ static void log_error_core(const char *file, int line, int module_index,
         }
     }
 
+    if (!logf && !(errorlog_provider && errorlog_provider_handle)) {
+        /* There is no file to send the log message to (or it is
+         * redirected to /dev/null and therefore any formating done below
+         * would be lost anyway) and there is no initialized log provider
+         * available, so we just return here.
+         */
+        return;
+    }
+
     info.s             = s;
     info.c             = c;
     info.pool          = pool;
     info.file          = NULL;
     info.line          = 0;
     info.status        = 0;
-    info.using_syslog  = (logf == NULL);
+    info.using_provider= (logf == NULL);
     info.startup       = ((level & APLOG_STARTUP) == APLOG_STARTUP);
     info.format        = fmt;
 
@@ -1250,7 +1195,7 @@ static void log_error_core(const char *file, int line, int module_index,
          * prepare and log one line
          */
 
-        if (log_format) {
+        if (log_format && !info.startup) {
             len += do_errorlog_format(log_format, &info, errstr + len,
                                       MAX_STRING_LEN - len,
                                       &errstr_start, &errstr_end, fmt, args);
@@ -1260,15 +1205,31 @@ static void log_error_core(const char *file, int line, int module_index,
                                        &errstr_start, &errstr_end, fmt, args);
         }
 
-        if (!*errstr)
-        {
+        if (!*errstr) {
             /*
              * Don't log empty lines. This can happen with once-per-conn/req
              * info if an item with AP_ERRORLOG_FLAG_REQUIRED is NULL.
              */
             continue;
         }
-        write_logline(errstr, len, logf, level_and_mask);
+
+        if (logf || (errorlog_provider->flags &
+            AP_ERRORLOG_PROVIDER_ADD_EOL_STR)) {
+            /* Truncate for the terminator (as apr_snprintf does) */
+            if (len > MAX_STRING_LEN - sizeof(APR_EOL_STR)) {
+                len = MAX_STRING_LEN - sizeof(APR_EOL_STR);
+            }
+            strcpy(errstr + len, APR_EOL_STR);
+            len += strlen(APR_EOL_STR);
+        }
+
+        if (logf) {
+            write_logline(errstr, len, logf, level_and_mask);
+        }
+        else {
+            errorlog_provider->writer(&info, errorlog_provider_handle,
+                                      errstr, len);
+        }
 
         if (done) {
             /*
@@ -1282,6 +1243,21 @@ static void log_error_core(const char *file, int line, int module_index,
 
         *errstr = '\0';
     }
+}
+
+/* For internal calls to log_error_core with self-composed arg lists */
+static void log_error_va_glue(const char *file, int line, int module_index,
+                              int level, apr_status_t status,
+                              const server_rec *s, const conn_rec *c,
+                              const request_rec *r, apr_pool_t *pool,
+                              const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    log_error_core(file, line, module_index, level, status, s, c, r, pool,
+                   fmt, args);
+    va_end(args);
 }
 
 AP_DECLARE(void) ap_log_error_(const char *file, int line, int module_index,
@@ -1362,6 +1338,129 @@ AP_DECLARE(void) ap_log_cerror_(const char *file, int line, int module_index,
     va_end(args);
 }
 
+#define BYTES_LOGGED_PER_LINE 16
+#define LOG_BYTES_BUFFER_SIZE (BYTES_LOGGED_PER_LINE * 3 + 2)
+
+static void fmt_data(unsigned char *buf, const void *vdata, apr_size_t len, apr_size_t *off)
+{
+    const unsigned char *data = (const unsigned char *)vdata;
+    unsigned char *chars;
+    unsigned char *hex;
+    apr_size_t this_time = 0;
+
+    memset(buf, ' ', LOG_BYTES_BUFFER_SIZE - 1);
+    buf[LOG_BYTES_BUFFER_SIZE - 1] = '\0';
+    
+    chars = buf; /* start character dump here */
+    hex   = buf + BYTES_LOGGED_PER_LINE + 1; /* start hex dump here */
+    while (*off < len && this_time < BYTES_LOGGED_PER_LINE) {
+        unsigned char c = data[*off];
+
+        if (apr_isprint(c)
+            && c != '\\') {  /* backslash will be escaped later, which throws
+                              * off the formatting
+                              */
+            *chars = c;
+        }
+        else {
+            *chars = '.';
+        }
+
+        if ((c >> 4) >= 10) {
+            *hex = 'a' + ((c >> 4) - 10);
+        }
+        else {
+            *hex = '0' + (c >> 4);
+        }
+
+        if ((c & 0x0F) >= 10) {
+            *(hex + 1) = 'a' + ((c & 0x0F) - 10);
+        }
+        else {
+            *(hex + 1) = '0' + (c & 0x0F);
+        }
+
+        chars += 1;
+        hex += 2;
+        *off += 1;
+        ++this_time;
+    }
+}
+
+static void log_data_core(const char *file, int line, int module_index,
+                          int level, const server_rec *s,
+                          const conn_rec *c, const request_rec *r,
+                          const char *label, const void *data, apr_size_t len,
+                          unsigned int flags)
+{
+    unsigned char buf[LOG_BYTES_BUFFER_SIZE];
+    apr_size_t off;
+    char prefix[20];
+
+    if (!(flags & AP_LOG_DATA_SHOW_OFFSET)) {
+        prefix[0] = '\0';
+    }
+
+    if (len > 0xffff) { /* bug in caller? */
+        len = 0xffff;
+    }
+
+    if (label) {
+        log_error_va_glue(file, line, module_index, level, APR_SUCCESS, s,
+                          c, r, NULL, "%s (%" APR_SIZE_T_FMT " bytes)",
+                          label, len);
+    }
+
+    off = 0;
+    while (off < len) {
+        if (flags & AP_LOG_DATA_SHOW_OFFSET) {
+            apr_snprintf(prefix, sizeof prefix, "%04x: ", (unsigned int)off);
+        }
+        fmt_data(buf, data, len, &off);
+        log_error_va_glue(file, line, module_index, level, APR_SUCCESS, s,
+                          c, r, NULL, "%s%s", prefix, buf);
+    }
+}
+
+AP_DECLARE(void) ap_log_data_(const char *file, int line, 
+                              int module_index, int level,
+                              const server_rec *s, const char *label,
+                              const void *data, apr_size_t len,
+                              unsigned int flags)
+{
+    log_data_core(file, line, module_index, level, s, NULL, NULL, label,
+                  data, len, flags);
+}
+
+AP_DECLARE(void) ap_log_rdata_(const char *file, int line,
+                               int module_index, int level,
+                               const request_rec *r, const char *label,
+                               const void *data, apr_size_t len,
+                               unsigned int flags)
+{
+    log_data_core(file, line, module_index, level, r->server, NULL, r, label,
+                  data, len, flags);
+}
+
+AP_DECLARE(void) ap_log_cdata_(const char *file, int line,
+                               int module_index, int level,
+                               const conn_rec *c, const char *label,
+                               const void *data, apr_size_t len,
+                               unsigned int flags)
+{
+    log_data_core(file, line, module_index, level, c->base_server, c, NULL,
+                  label, data, len, flags);
+}
+
+AP_DECLARE(void) ap_log_csdata_(const char *file, int line, int module_index,
+                                int level, const conn_rec *c, const server_rec *s,
+                                const char *label, const void *data,
+                                apr_size_t len, unsigned int flags)
+{
+    log_data_core(file, line, module_index, level, s, c, NULL, label, data,
+                  len, flags);
+}
+
 AP_DECLARE(void) ap_log_command_line(apr_pool_t *plog, server_rec *s)
 {
     int i;
@@ -1389,10 +1488,19 @@ AP_DECLARE(void) ap_log_command_line(apr_pool_t *plog, server_rec *s)
                  "Command line: '%s'", result);
 }
 
+/* grab bag function to log commonly logged and shared info */
+AP_DECLARE(void) ap_log_mpm_common(server_rec *s)
+{
+    ap_log_error(APLOG_MARK, APLOG_DEBUG , 0, s, APLOGNO(02639)
+                 "Using SO_REUSEPORT: %s (%d)",
+                 ap_have_so_reuseport ? "yes" : "no",
+                 ap_num_listen_buckets);
+}
+
 AP_DECLARE(void) ap_remove_pid(apr_pool_t *p, const char *rel_fname)
 {
     apr_status_t rv;
-    const char *fname = ap_server_root_relative(p, rel_fname);
+    const char *fname = ap_runtime_dir_relative(p, rel_fname);
 
     if (fname != NULL) {
         rv = apr_file_remove(fname, p);
@@ -1421,7 +1529,7 @@ AP_DECLARE(void) ap_log_pid(apr_pool_t *p, const char *filename)
         return;
     }
 
-    fname = ap_server_root_relative(p, filename);
+    fname = ap_runtime_dir_relative(p, filename);
     if (!fname) {
         ap_log_error(APLOG_MARK, APLOG_STARTUP|APLOG_CRIT, APR_EBADPATH,
                      NULL, APLOGNO(00097) "Invalid PID file path %s, ignoring.", filename);
@@ -1474,7 +1582,7 @@ AP_DECLARE(apr_status_t) ap_read_pid(apr_pool_t *p, const char *filename,
         return APR_EGENERAL;
     }
 
-    fname = ap_server_root_relative(p, filename);
+    fname = ap_runtime_dir_relative(p, filename);
     if (!fname) {
         ap_log_error(APLOG_MARK, APLOG_STARTUP|APLOG_CRIT, APR_EBADPATH,
                      NULL, APLOGNO(00101) "Invalid PID file path %s, ignoring.", filename);
@@ -1548,20 +1656,17 @@ static apr_status_t piped_log_spawn(piped_log *pl)
         ((status = apr_procattr_child_errfn_set(procattr, log_child_errfn))
          != APR_SUCCESS) ||
         ((status = apr_procattr_error_check_set(procattr, 1)) != APR_SUCCESS)) {
-        char buf[120];
         /* Something bad happened, give up and go away. */
-        ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL, APLOGNO(00103)
-                     "piped_log_spawn: unable to setup child process '%s': %s",
-                     pl->program, apr_strerror(status, buf, sizeof(buf)));
+        ap_log_error(APLOG_MARK, APLOG_STARTUP, status, NULL, APLOGNO(00103)
+                     "piped_log_spawn: unable to setup child process '%s'",
+                     pl->program);
     }
     else {
         char **args;
-        const char *pname;
 
         apr_tokenize_to_argv(pl->program, &args, pl->p);
-        pname = apr_pstrdup(pl->p, args[0]);
         procnew = apr_pcalloc(pl->p, sizeof(apr_proc_t));
-        status = apr_proc_create(procnew, pname, (const char * const *) args,
+        status = apr_proc_create(procnew, args[0], (const char * const *) args,
                                  NULL, procattr, pl->p);
 
         if (status == APR_SUCCESS) {
@@ -1576,11 +1681,10 @@ static apr_status_t piped_log_spawn(piped_log *pl)
             close_handle_in_child(pl->p, pl->read_fd);
         }
         else {
-            char buf[120];
             /* Something bad happened, give up and go away. */
-            ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL, APLOGNO(00104)
-                         "unable to start piped log program '%s': %s",
-                         pl->program, apr_strerror(status, buf, sizeof(buf)));
+            ap_log_error(APLOG_MARK, APLOG_STARTUP, status, NULL, APLOGNO(00104)
+                         "unable to start piped log program '%s'",
+                         pl->program);
         }
     }
 
@@ -1591,7 +1695,7 @@ static apr_status_t piped_log_spawn(piped_log *pl)
 static void piped_log_maintenance(int reason, void *data, apr_wait_t status)
 {
     piped_log *pl = data;
-    apr_status_t stats;
+    apr_status_t rv;
     int mpm_state;
 
     switch (reason) {
@@ -1601,8 +1705,8 @@ static void piped_log_maintenance(int reason, void *data, apr_wait_t status)
                          * tells other logic not to try to kill it
                          */
         apr_proc_other_child_unregister(pl);
-        stats = ap_mpm_query(AP_MPMQ_MPM_STATE, &mpm_state);
-        if (stats != APR_SUCCESS) {
+        rv = ap_mpm_query(AP_MPMQ_MPM_STATE, &mpm_state);
+        if (rv != APR_SUCCESS) {
             ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL, APLOGNO(00105)
                          "can't query MPM state; not restarting "
                          "piped log program '%s'",
@@ -1612,13 +1716,12 @@ static void piped_log_maintenance(int reason, void *data, apr_wait_t status)
             ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL, APLOGNO(00106)
                          "piped log program '%s' failed unexpectedly",
                          pl->program);
-            if ((stats = piped_log_spawn(pl)) != APR_SUCCESS) {
+            if ((rv = piped_log_spawn(pl)) != APR_SUCCESS) {
                 /* what can we do?  This could be the error log we're having
                  * problems opening up... */
-                char buf[120];
-                ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL, APLOGNO(00107)
-                             "piped_log_maintenance: unable to respawn '%s': %s",
-                             pl->program, apr_strerror(stats, buf, sizeof(buf)));
+                ap_log_error(APLOG_MARK, APLOG_STARTUP, rv, NULL, APLOGNO(00107)
+                             "piped_log_maintenance: unable to respawn '%s'",
+                             pl->program);
             }
         }
         break;

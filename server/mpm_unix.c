@@ -173,6 +173,7 @@ static int reclaim_one_pid(pid_t pid, action_t action)
     return 0;
 }
 
+/* XXX The terminate argument is ignored. Implement or remove? */
 AP_DECLARE(void) ap_reclaim_child_processes(int terminate,
                                             ap_reclaim_callback_fn_t *mpm_callback)
 {
@@ -501,14 +502,115 @@ static apr_status_t pod_signal_internal(ap_pod_t *pod)
     return rv;
 }
 
-/* This function connects to the server, then immediately closes the connection.
- * This permits the MPM to skip the poll when there is only one listening
- * socket, because it provides a alternate way to unblock an accept() when
- * the pod is used.
- */
+AP_DECLARE(apr_status_t) ap_mpm_podx_open(apr_pool_t *p, ap_pod_t **pod)
+{
+    apr_status_t rv;
+
+    *pod = apr_palloc(p, sizeof(**pod));
+    rv = apr_file_pipe_create(&((*pod)->pod_in), &((*pod)->pod_out), p);
+    if (rv != APR_SUCCESS) {
+        return rv;
+    }
+    /*
+     apr_file_pipe_timeout_set((*pod)->pod_in, 0);
+     */
+    (*pod)->p = p;
+
+    /* close these before exec. */
+    apr_file_inherit_unset((*pod)->pod_in);
+    apr_file_inherit_unset((*pod)->pod_out);
+
+    return APR_SUCCESS;
+}
+
+AP_DECLARE(int) ap_mpm_podx_check(ap_pod_t *pod)
+{
+    char c;
+    apr_os_file_t fd;
+    int rc;
+
+    /* we need to surface EINTR so we'll have to grab the
+     * native file descriptor and do the OS read() ourselves
+     */
+    apr_os_file_get(&fd, pod->pod_in);
+    rc = read(fd, &c, 1);
+    if (rc == 1) {
+        switch (c) {
+            case AP_MPM_PODX_RESTART_CHAR:
+                return AP_MPM_PODX_RESTART;
+            case AP_MPM_PODX_GRACEFUL_CHAR:
+                return AP_MPM_PODX_GRACEFUL;
+        }
+    }
+    return AP_MPM_PODX_NORESTART;
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_podx_close(ap_pod_t *pod)
+{
+    apr_status_t rv;
+
+    rv = apr_file_close(pod->pod_out);
+    if (rv != APR_SUCCESS) {
+        return rv;
+    }
+
+    rv = apr_file_close(pod->pod_in);
+    if (rv != APR_SUCCESS) {
+        return rv;
+    }
+    return rv;
+}
+
+static apr_status_t podx_signal_internal(ap_pod_t *pod,
+                                        ap_podx_restart_t graceful)
+{
+    apr_status_t rv;
+    apr_size_t one = 1;
+    char char_of_death = ' ';
+    switch (graceful) {
+        case AP_MPM_PODX_RESTART:
+            char_of_death = AP_MPM_PODX_RESTART_CHAR;
+            break;
+        case AP_MPM_PODX_GRACEFUL:
+            char_of_death = AP_MPM_PODX_GRACEFUL_CHAR;
+            break;
+        case AP_MPM_PODX_NORESTART:
+            break;
+    }
+
+    rv = apr_file_write(pod->pod_out, &char_of_death, &one);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING, rv, ap_server_conf, APLOGNO(02404)
+                     "write pipe_of_death");
+    }
+    return rv;
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_podx_signal(ap_pod_t * pod,
+                                            ap_podx_restart_t graceful)
+{
+    return podx_signal_internal(pod, graceful);
+}
+
+AP_DECLARE(void) ap_mpm_podx_killpg(ap_pod_t * pod, int num,
+                                    ap_podx_restart_t graceful)
+{
+    int i;
+    apr_status_t rv = APR_SUCCESS;
+
+    for (i = 0; i < num && rv == APR_SUCCESS; i++) {
+        rv = podx_signal_internal(pod, graceful);
+    }
+}
+
+/* This function connects to the server and sends enough data to
+ * ensure the child wakes up and processes a new connection.  This
+ * permits the MPM to skip the poll when there is only one listening
+ * socket, because it provides a alternate way to unblock an accept()
+ * when the pod is used.  */
 static apr_status_t dummy_connection(ap_pod_t *pod)
 {
-    char *srequest;
+    const char *data;
     apr_status_t rv;
     apr_socket_t *sock;
     apr_pool_t *p;
@@ -526,7 +628,7 @@ static apr_status_t dummy_connection(ap_pod_t *pod)
      * expensive to do correctly (performing a complete SSL handshake)
      * or cause log spam by doing incorrectly (simply sending EOF). */
     lp = ap_listeners;
-    while (lp && lp->protocol && strcasecmp(lp->protocol, "http") != 0) {
+    while (lp && lp->protocol && ap_cstr_casecmp(lp->protocol, "http") != 0) {
         lp = lp->next;
     }
     if (!lp) {
@@ -574,24 +676,37 @@ static apr_status_t dummy_connection(ap_pod_t *pod)
         return rv;
     }
 
-    /* Create the request string. We include a User-Agent so that
-     * adminstrators can track down the cause of the odd-looking
-     * requests in their logs.
-     */
-    srequest = apr_pstrcat(p, "OPTIONS * HTTP/1.0\r\nUser-Agent: ",
+    if (lp->protocol && ap_cstr_casecmp(lp->protocol, "https") == 0) {
+        /* Send a TLS 1.0 close_notify alert.  This is perhaps the
+         * "least wrong" way to open and cleanly terminate an SSL
+         * connection.  It should "work" without noisy error logs if
+         * the server actually expects SSLv3/TLSv1.  With
+         * SSLv23_server_method() OpenSSL's SSL_accept() fails
+         * ungracefully on receipt of this message, since it requires
+         * an 11-byte ClientHello message and this is too short. */
+        static const unsigned char tls10_close_notify[7] = {
+            '\x15',         /* TLSPlainText.type = Alert (21) */
+            '\x03', '\x01', /* TLSPlainText.version = {3, 1} */
+            '\x00', '\x02', /* TLSPlainText.length = 2 */
+            '\x01',         /* Alert.level = warning (1) */
+            '\x00'          /* Alert.description = close_notify (0) */
+        };
+        data = (const char *)tls10_close_notify;
+        len = sizeof(tls10_close_notify);
+    }
+    else /* ... XXX other request types here? */ {
+        /* Create an HTTP request string.  We include a User-Agent so
+         * that adminstrators can track down the cause of the
+         * odd-looking requests in their logs.  A complete request is
+         * used since kernel-level filtering may require that much
+         * data before returning from accept(). */
+        data = apr_pstrcat(p, "OPTIONS * HTTP/1.0\r\nUser-Agent: ",
                            ap_get_server_description(),
                            " (internal dummy connection)\r\n\r\n", NULL);
+        len = strlen(data);
+    }
 
-    /* Since some operating systems support buffering of data or entire
-     * requests in the kernel, we send a simple request, to make sure
-     * the server pops out of a blocking accept().
-     */
-    /* XXX: This is HTTP specific. We should look at the Protocol for each
-     * listener, and send the correct type of request to trigger any Accept
-     * Filters.
-     */
-    len = strlen(srequest);
-    apr_socket_send(sock, srequest, &len);
+    apr_socket_send(sock, data, &len);
     apr_socket_close(sock);
     apr_pool_destroy(p);
 
@@ -628,7 +743,12 @@ void ap_mpm_pod_killpg(ap_pod_t *pod, int num)
      * readers stranded (a number of them could be tied up for
      * a while serving time-consuming requests)
      */
+    /* Recall: we only worry about IDLE child processes here */
     for (i = 0; i < num && rv == APR_SUCCESS; i++) {
+        if (ap_scoreboard_image->servers[i][0].status != SERVER_READY ||
+            ap_scoreboard_image->servers[i][0].pid == 0) {
+            continue;
+        }
         rv = dummy_connection(pod);
     }
 }
@@ -668,7 +788,10 @@ int ap_signal_server(int *exit_status, apr_pool_t *pconf)
         status = "httpd (no pid file) not running";
     }
     else {
-        if (kill(otherpid, 0) == 0) {
+        /* With containerization, httpd may get the same PID at each startup,
+         * handle it as if it were not running (it obviously can't).
+         */
+        if (otherpid != getpid() && kill(otherpid, 0) == 0) {
             running = 1;
             status = apr_psprintf(pconf,
                                   "httpd (pid %" APR_PID_T_FMT ") already "

@@ -44,10 +44,21 @@ on characteristics of the request</description>
     such as this example, which sets <code>netscape</code> if the
     browser is mozilla but not MSIE.</p>
 
-<example>
-  BrowserMatch ^Mozilla netscape<br />
-  BrowserMatch MSIE !netscape<br />
-</example>
+<highlight language="config">
+BrowserMatch ^Mozilla netscape
+BrowserMatch MSIE !netscape
+</highlight>
+
+   <p>When the server looks up a path via an internal
+   <glossary ref="subrequest">subrequest</glossary> such as looking
+   for a <directive module="mod_dir" >DirectoryIndex</directive>
+   or generating a directory listing with <module>mod_autoindex</module>,
+   per-request environment variables are <em>not</em> inherited in the
+   subrequest. Additionally,
+   <directive module="mod_setenvif">SetEnvIf</directive> directives
+   are not separately evaluated in the subrequest due to the API phases
+   <module>mod_setenvif</module> takes action in.</p>
+
 </summary>
 
 <seealso><a href="../env.html">Environment Variables in Apache HTTP Server</a></seealso>
@@ -69,17 +80,17 @@ on characteristics of the request</description>
   sets environment variables conditional on the
   <code>User-Agent</code> HTTP request header.  The following two
   lines have the same effect:</p>
-<example>
-   BrowserMatchNoCase Robot is_a_robot<br />
-   SetEnvIfNoCase User-Agent Robot is_a_robot<br />
-</example>
+<highlight language="config">
+BrowserMatch Robot is_a_robot
+SetEnvIf User-Agent Robot is_a_robot
+</highlight>
 
     <p>Some additional examples:</p>
-<example>
-    BrowserMatch ^Mozilla forms jpeg=yes browser=netscape<br />
-    BrowserMatch "^Mozilla/[2-3]" tables agif frames javascript<br />
-    BrowserMatch MSIE !javascript<br />
-</example>
+<highlight language="config">
+BrowserMatch ^Mozilla forms jpeg=yes browser=netscape
+BrowserMatch "^Mozilla/[2-3]" tables agif frames javascript
+BrowserMatch MSIE !javascript
+</highlight>
 </usage>
 </directivesynopsis>
 
@@ -101,20 +112,20 @@ respect to case</description>
     module="mod_setenvif">BrowserMatch</directive> directive.
     However, it provides for case-insensitive matching. For
     example:</p>
-<example>
-    BrowserMatchNoCase mac platform=macintosh<br />
-    BrowserMatchNoCase win platform=windows<br />
-</example>
+<highlight language="config">
+BrowserMatchNoCase mac platform=macintosh
+BrowserMatchNoCase win platform=windows
+</highlight>
 
     <p>The <directive>BrowserMatch</directive> and
     <directive>BrowserMatchNoCase</directive> directives are special cases of
     the <directive module="mod_setenvif">SetEnvIf</directive> and <directive
     module="mod_setenvif">SetEnvIfNoCase</directive>
     directives. The following two lines have the same effect:</p>
-<example>
-   BrowserMatchNoCase Robot is_a_robot<br />
-   SetEnvIfNoCase User-Agent Robot is_a_robot<br />
-</example>
+<highlight language="config">
+BrowserMatchNoCase Robot is_a_robot
+SetEnvIfNoCase User-Agent Robot is_a_robot
+</highlight>
 </usage>
 </directivesynopsis>
 
@@ -209,20 +220,22 @@ of</p>
     <code><em>value</em></code>. Since version 2.0.51, Apache httpd will
     recognize occurrences of <code>$1</code>..<code>$9</code> within
     <var>value</var> and replace them by parenthesized subexpressions
-    of <var>regex</var>.</p>
+    of <var>regex</var>. <code>$0</code> provides access to the whole
+    string matched by that pattern.</p>
 
-<example>
-<title>Example:</title>
-   SetEnvIf Request_URI "\.gif$" object_is_image=gif<br />
-   SetEnvIf Request_URI "\.jpg$" object_is_image=jpg<br />
-   SetEnvIf Request_URI "\.xbm$" object_is_image=xbm<br />
-        :<br />
-   SetEnvIf Referer www\.mydomain\.example\.com intra_site_referral<br />
-        :<br />
-   SetEnvIf object_is_image xbm XBIT_PROCESSING=1<br />
-        :<br />
-   SetEnvIf ^TS  ^[a-z]  HAVE_TS<br />
-</example>
+<highlight language="config">
+SetEnvIf Request_URI "\.gif$" object_is_image=gif
+SetEnvIf Request_URI "\.jpg$" object_is_image=jpg
+SetEnvIf Request_URI "\.xbm$" object_is_image=xbm
+
+SetEnvIf Referer www\.mydomain\.example\.com intra_site_referral
+
+SetEnvIf object_is_image xbm XBIT_PROCESSING=1
+
+SetEnvIf Request_URI "\.(.*)$" EXTENSION=$1
+
+SetEnvIf ^TS  ^[a-z]  HAVE_TS
+</highlight>
 
     <p>The first three will set the environment variable
     <code>object_is_image</code> if the request was for an image
@@ -256,14 +269,14 @@ for additional examples.
 
 <usage>
     <p>The <directive>SetEnvIfExpr</directive> directive defines
-    environment variables based on an <directive type="section">If</directive>
+    environment variables based on an <directive module="core" type="section">If</directive>
     <code>ap_expr</code>. These expressions will be evaluated at runtime,
     and applied <em>env-variable</em> in the same fashion as <directive
     >SetEnvIf</directive>.</p>
 
-<example>
+<highlight language="config">
     SetEnvIfExpr "tolower(req('X-Sendfile')) == 'd:\images\very_big.iso')" iso_delivered
-</example>
+</highlight>
 
     <p>This would set the environment variable <code>iso_delivered</code>
     every time our application attempts to send it via <code>X-Sendfile</code></p>
@@ -271,14 +284,14 @@ for additional examples.
     <p>A more useful example would be to set the variable rfc1918 if the
     remote IP address is a private address according to RFC 1918:</p>
 
-<example>
+<highlight language="config">
     SetEnvIfExpr "-R '10.0.0.0/8' || -R '172.16.0.0/12' || -R '192.168.0.0/16'" rfc1918
-</example>
+</highlight>
 </usage>
 
 <seealso><a href="../expr.html">Expressions in Apache HTTP Server</a>,
 for a complete reference and more examples.</seealso>
-<seealso><directive type="section">If</directive> can be used to achive similar
+<seealso><directive module="core" type="section">If</directive> can be used to achieve similar
 results.</seealso>
 <seealso><module>mod_filter</module></seealso>
 </directivesynopsis>
@@ -301,9 +314,9 @@ without respect to case</description>
     the <directive module="mod_setenvif">SetEnvIf</directive> directive,
     and differs only in that the regular expression matching is
     performed in a case-insensitive manner. For example:</p>
-<example>
+<highlight language="config">
    SetEnvIfNoCase Host Example\.Org site=example
-</example>
+</highlight>
 
     <p>This will cause the <code>site</code> environment variable
     to be set to "<code>example</code>" if the HTTP request header

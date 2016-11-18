@@ -19,8 +19,6 @@
 # and certificates as to facilitate testing of TLS server name 
 # indication support (RFC 4366) or SNI.
 #
-# $Id$
-#
 #
 OPENSSL=${OPENSSL:-openssl}
 DOMAIN=${DOMAIN:-my-sni-test.org}
@@ -84,7 +82,7 @@ do
 done
 
 if [ $# = 1 ]; then
-    echo "Aborted - just specifing one vhost makes no sense for SNI testing. Go wild !"
+    echo "Aborted - just specifying one vhost makes no sense for SNI testing. Go wild !"
     exit 1
 fi
 

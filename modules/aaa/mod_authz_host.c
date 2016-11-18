@@ -131,10 +131,8 @@ static const char *ip_parse_config(cmd_parms *cmd,
             return apr_psprintf(p, "ip address '%s' appears to be invalid", w);
         }
         else if (rv != APR_SUCCESS) {
-            char msgbuf[120];
-            apr_strerror(rv, msgbuf, sizeof msgbuf);
-            return apr_psprintf(p, "ip address '%s' appears to be invalid: %s",
-                                w, msgbuf);
+            return apr_psprintf(p, "ip address '%s' appears to be invalid: %pm",
+                                w, &rv);
         }
 
         if (parsed_subnets)
@@ -166,14 +164,12 @@ static authz_status host_check_authorization(request_rec *r,
                                              const char *require_line,
                                              const void *parsed_require_line)
 {
-    const char *t, *w;
+    const char *t;
+    char *w, *hash_ptr;
     const char *remotehost = NULL;
     int remotehost_is_ip;
 
-    remotehost = ap_get_remote_host(r->connection,
-                                    r->per_dir_config,
-                                    REMOTE_DOUBLE_REV,
-                                    &remotehost_is_ip);
+    remotehost = ap_get_useragent_host(r, REMOTE_DOUBLE_REV, &remotehost_is_ip);
 
     if ((remotehost == NULL) || remotehost_is_ip) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01753)
@@ -181,18 +177,108 @@ static authz_status host_check_authorization(request_rec *r,
                       "remote host name", require_line, r->uri);
     }
     else {
+        const char *err = NULL;
+        const ap_expr_info_t *expr = parsed_require_line;
+        const char *require;
+
+        require = ap_expr_str_exec(r, expr, &err);
+        if (err) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02593)
+                          "authz_host authorize: require host: Can't "
+                          "evaluate require expression: %s", err);
+            return AUTHZ_DENIED;
+        }
+
         /* The 'host' provider will allow the configuration to specify a list of
             host names to check rather than a single name.  This is different
             from the previous host based syntax. */
-        t = require_line;
+        t = require;
         while ((w = ap_getword_conf(r->pool, &t)) && w[0]) {
+            /* '#' is not valid hostname character and admin could specify
+             * 'Require host localhost# Add example.com later'. We should not
+             * grant access to 'example.com' in that case. */
+            if ((hash_ptr = ap_strchr(w, '#'))) {
+                if (hash_ptr == w) {
+                    break;
+                }
+                *hash_ptr = '\0';
+            }
             if (in_domain(w, remotehost)) {
                 return AUTHZ_GRANTED;
+            }
+            if (hash_ptr) {
+                break;
             }
         }
     }
 
     /* authz_core will log the require line and the result at DEBUG */
+    return AUTHZ_DENIED;
+}
+
+static authz_status
+forward_dns_check_authorization(request_rec *r,
+                                const char *require_line,
+                                const void *parsed_require_line)
+{
+    const char *err = NULL;
+    const ap_expr_info_t *expr = parsed_require_line;
+    const char *require, *t;
+    char *w;
+
+    /* the require line is an expression, which is evaluated now. */
+    require = ap_expr_str_exec(r, expr, &err);
+    if (err) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(03354)
+                    "authz_host authorize: require forward-dns: "
+                    "Can't evaluate require expression: %s", err);
+      return AUTHZ_DENIED;
+    }
+
+    /* tokenize expected list of names */
+    t = require;
+    while ((w = ap_getword_conf(r->pool, &t)) && w[0]) {
+
+        apr_sockaddr_t *sa;
+        apr_status_t rv;
+        char *hash_ptr;
+
+        /* stop on apache configuration file comments */
+        if ((hash_ptr = ap_strchr(w, '#'))) {
+            if (hash_ptr == w) {
+                break;
+            }
+            *hash_ptr = '\0';
+        }
+
+        /* does the client ip match one of the names? */
+        rv = apr_sockaddr_info_get(&sa, w, APR_UNSPEC, 0, 0, r->pool);
+        if (rv == APR_SUCCESS) {
+
+            while (sa) {
+                int match = apr_sockaddr_equal(sa, r->useragent_addr);
+
+                ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(03355)
+                              "access check for %s as '%s': %s",
+                              r->useragent_ip, w, match? "yes": "no");
+                if (match) {
+                    return AUTHZ_GRANTED;
+                }
+
+                sa = sa->next;
+            }
+        }
+        else {
+            ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, APLOGNO(03356)
+                          "No sockaddr info for \"%s\"", w);
+        }
+
+        /* stop processing, we are in a comment */
+        if (hash_ptr) {
+            break;
+        }
+    }
+
     return AUTHZ_DENIED;
 }
 
@@ -214,6 +300,25 @@ static authz_status local_check_authorization(request_rec *r,
      return AUTHZ_DENIED;
 }
 
+static const char *host_parse_config(cmd_parms *cmd, const char *require_line,
+                                     const void **parsed_require_line)
+{
+    const char *expr_err = NULL;
+    ap_expr_info_t *expr;
+
+    expr = ap_expr_parse_cmd(cmd, require_line, AP_EXPR_FLAG_STRING_RESULT,
+            &expr_err, NULL);
+
+    if (expr_err)
+        return apr_pstrcat(cmd->temp_pool,
+                           "Cannot parse expression in require line: ",
+                           expr_err, NULL);
+
+    *parsed_require_line = expr;
+
+    return NULL;
+}
+
 static const authz_provider authz_ip_provider =
 {
     &ip_check_authorization,
@@ -223,7 +328,13 @@ static const authz_provider authz_ip_provider =
 static const authz_provider authz_host_provider =
 {
     &host_check_authorization,
-    NULL,
+    &host_parse_config,
+};
+
+static const authz_provider authz_forward_dns_provider =
+{
+    &forward_dns_check_authorization,
+    &host_parse_config,
 };
 
 static const authz_provider authz_local_provider =
@@ -270,6 +381,10 @@ static void register_hooks(apr_pool_t *p)
     ap_register_auth_provider(p, AUTHZ_PROVIDER_GROUP, "host",
                               AUTHZ_PROVIDER_VERSION,
                               &authz_host_provider, AP_AUTH_INTERNAL_PER_CONF);
+    ap_register_auth_provider(p, AUTHZ_PROVIDER_GROUP, "forward-dns",
+                              AUTHZ_PROVIDER_VERSION,
+                              &authz_forward_dns_provider,
+                              AP_AUTH_INTERNAL_PER_CONF);
     ap_register_auth_provider(p, AUTHZ_PROVIDER_GROUP, "local",
                               AUTHZ_PROVIDER_VERSION,
                               &authz_local_provider, AP_AUTH_INTERNAL_PER_CONF);

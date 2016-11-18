@@ -45,7 +45,22 @@
 
 #ifdef __MINGW32__
 #include <mswsock.h>
-#endif
+
+#ifndef WSAID_ACCEPTEX
+#define WSAID_ACCEPTEX \
+  {0xb5367df1, 0xcbac, 0x11cf, {0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92}}
+typedef BOOL (WINAPI *LPFN_ACCEPTEX)(SOCKET, SOCKET, PVOID, DWORD, DWORD, DWORD, LPDWORD, LPOVERLAPPED);
+#endif /* WSAID_ACCEPTEX */
+
+#ifndef WSAID_GETACCEPTEXSOCKADDRS
+#define WSAID_GETACCEPTEXSOCKADDRS \
+  {0xb5367df2, 0xcbac, 0x11cf, {0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92}}
+typedef VOID (WINAPI *LPFN_GETACCEPTEXSOCKADDRS)(PVOID, DWORD, DWORD, DWORD,
+                                                 struct sockaddr **, LPINT,
+                                                 struct sockaddr **, LPINT);
+#endif /* WSAID_GETACCEPTEXSOCKADDRS */
+
+#endif /* __MINGW32__ */
 
 /*
  * The Windows MPM uses a queue of completion contexts that it passes
@@ -121,10 +136,17 @@ static void mpm_recycle_completion_context(winnt_conn_ctx_t *context)
      * state so -don't- close it.
      */
     if (context) {
+        HANDLE saved_event;
+
         apr_pool_clear(context->ptrans);
         context->ba = apr_bucket_alloc_create(context->ptrans);
         context->next = NULL;
+
+        saved_event = context->overlapped.hEvent;
+        memset(&context->overlapped, 0, sizeof(context->overlapped));
+        context->overlapped.hEvent = saved_event;
         ResetEvent(context->overlapped.hEvent);
+
         apr_thread_mutex_lock(qlock);
         if (qtail) {
             qtail->next = context;
@@ -281,6 +303,10 @@ static unsigned int __stdcall winnt_accept(void *lr_)
     winnt_conn_ctx_t *context = NULL;
     DWORD BytesRead;
     SOCKET nlsd;
+    LPFN_ACCEPTEX lpfnAcceptEx = NULL;
+    LPFN_GETACCEPTEXSOCKADDRS lpfnGetAcceptExSockaddrs = NULL;
+    GUID GuidAcceptEx = WSAID_ACCEPTEX;
+    GUID GuidGetAcceptExSockaddrs = WSAID_GETACCEPTEXSOCKADDRS;
     core_server_config *core_sconf;
     const char *accf_name;
     int rv;
@@ -296,8 +322,21 @@ static unsigned int __stdcall winnt_accept(void *lr_)
     core_sconf = ap_get_core_module_config(ap_server_conf->module_config);
     accf_name = apr_table_get(core_sconf->accf_map, lr->protocol);
 
-    if (strcmp(accf_name, "data") == 0)
-        accf = 2;
+    if (!accf_name) {
+        accf = 0;
+        accf_name = "none";
+        ap_log_error(APLOG_MARK, APLOG_WARNING, 0, ap_server_conf,
+                     APLOGNO(02531) "winnt_accept: Listen protocol '%s' has "
+                     "no known accept filter. Using 'none' instead",
+                     lr->protocol);
+    }
+    else if (strcmp(accf_name, "data") == 0) {
+        accf = 1;
+        accf_name = "connect";
+        ap_log_error(APLOG_MARK, APLOG_INFO, 0, ap_server_conf,
+                     APLOGNO(03458) "winnt_accept: 'data' accept filter is no "
+                     "longer supported. Using 'connect' instead");
+    }
     else if (strcmp(accf_name, "connect") == 0)
         accf = 1;
     else if (strcmp(accf_name, "none") == 0)
@@ -323,15 +362,33 @@ static unsigned int __stdcall winnt_accept(void *lr_)
    }
 #endif
 
-    if (accf > 0) /* 'data' or 'connect' */
+    if (accf > 0) /* 'connect' */
     {
+        if (WSAIoctl(nlsd, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                     &GuidAcceptEx, sizeof GuidAcceptEx, 
+                     &lpfnAcceptEx, sizeof lpfnAcceptEx, 
+                     &BytesRead, NULL, NULL) == SOCKET_ERROR) {
+            ap_log_error(APLOG_MARK, APLOG_ERR, apr_get_netos_error(),
+                         ap_server_conf, APLOGNO(02322)
+                         "winnt_accept: failed to retrieve AcceptEx, try 'AcceptFilter none'");
+            return 1;
+        }
+        if (WSAIoctl(nlsd, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                     &GuidGetAcceptExSockaddrs, sizeof GuidGetAcceptExSockaddrs,
+                     &lpfnGetAcceptExSockaddrs, sizeof lpfnGetAcceptExSockaddrs,
+                     &BytesRead, NULL, NULL) == SOCKET_ERROR) {
+            ap_log_error(APLOG_MARK, APLOG_ERR, apr_get_netos_error(),
+                         ap_server_conf, APLOGNO(02323)
+                         "winnt_accept: failed to retrieve GetAcceptExSockaddrs, try 'AcceptFilter none'");
+            return 1;
+        }
         /* first, high priority event is an already accepted connection */
         events[1] = exit_event;
         events[2] = max_requests_per_child_event;
     }
     else /* accf == 0, 'none' */
     {
-reinit: /* target of data or connect upon too many AcceptEx failures */
+reinit: /* target of connect upon too many AcceptEx failures */
 
         /* last, low priority event is a not yet accepted connection */
         events[0] = exit_event;
@@ -352,9 +409,8 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
     }
 
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, ap_server_conf, APLOGNO(00334)
-                 "Child: Accept thread listening on %s:%d using AcceptFilter %s",
-                 lr->bind_addr->hostname ? lr->bind_addr->hostname : "*",
-                 lr->bind_addr->port, accf_name);
+                 "Child: Accept thread listening on %pI using AcceptFilter %s",
+                 lr->bind_addr, accf_name);
 
     while (!shutdown_in_progress) {
         if (!context) {
@@ -377,9 +433,8 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
             }
         }
 
-        if (accf > 0) /* Either 'connect' or 'data' */
+        if (accf > 0) /* 'connect' */
         {
-            DWORD len;
             char *buf;
 
             /* Create and initialize the accept socket */
@@ -409,22 +464,14 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
                 continue;
             }
 
-            if (accf == 2) { /* 'data' */
-                len = APR_BUCKET_BUFF_SIZE;
-                buf = apr_bucket_alloc(len, context->ba);
-                len -= PADDED_ADDR_SIZE * 2;
-            }
-            else /* (accf == 1) 'connect' */ {
-                len = 0;
-                buf = context->buff;
-            }
+            buf = context->buff;
 
             /* AcceptEx on the completion context. The completion context will be
              * signaled when a connection is accepted.
              */
-            if (!AcceptEx(nlsd, context->accept_socket, buf, len,
-                          PADDED_ADDR_SIZE, PADDED_ADDR_SIZE, &BytesRead,
-                          &context->overlapped)) {
+            if (!lpfnAcceptEx(nlsd, context->accept_socket, buf, 0,
+                              PADDED_ADDR_SIZE, PADDED_ADDR_SIZE, &BytesRead,
+                              &context->overlapped)) {
                 rv = apr_get_netos_error();
                 if ((rv == APR_FROM_OS_ERROR(WSAECONNRESET)) ||
                     (rv == APR_FROM_OS_ERROR(WSAEACCES))) {
@@ -432,8 +479,6 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
                      * 1) the client disconnects early
                      * 2) handshake was incomplete
                      */
-                    if (accf == 2)
-                        apr_bucket_free(buf);
                     closesocket(context->accept_socket);
                     context->accept_socket = INVALID_SOCKET;
                     continue;
@@ -448,8 +493,6 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
                      * 3) the dynamic address / adapter has changed
                      * Give five chances, then fall back on AcceptFilter 'none'
                      */
-                    if (accf == 2)
-                        apr_bucket_free(buf);
                     closesocket(context->accept_socket);
                     context->accept_socket = INVALID_SOCKET;
                     ++err_count;
@@ -469,8 +512,6 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
                 }
                 else if ((rv != APR_FROM_OS_ERROR(ERROR_IO_PENDING)) &&
                          (rv != APR_FROM_OS_ERROR(WSA_IO_PENDING))) {
-                    if (accf == 2)
-                        apr_bucket_free(buf);
                     closesocket(context->accept_socket);
                     context->accept_socket = INVALID_SOCKET;
                     ++err_count;
@@ -511,14 +552,10 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
                     /* exit_event triggered or event handle was closed */
                     closesocket(context->accept_socket);
                     context->accept_socket = INVALID_SOCKET;
-                    if (accf == 2)
-                        apr_bucket_free(buf);
                     break;
                 }
 
                 if (context->accept_socket == INVALID_SOCKET) {
-                    if (accf == 2)
-                        apr_bucket_free(buf);
                     continue;
                 }
             }
@@ -541,24 +578,9 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
             /* Get the local & remote address
              * TODO; error check
              */
-            GetAcceptExSockaddrs(buf, len, PADDED_ADDR_SIZE, PADDED_ADDR_SIZE,
-                                 &context->sa_server, &context->sa_server_len,
-                                 &context->sa_client, &context->sa_client_len);
-
-            /* For 'data', craft a bucket for our data result
-             * and pass to worker_main as context->overlapped.Pointer
-             */
-            if (accf == 2 && BytesRead)
-            {
-                apr_bucket *b;
-                b = apr_bucket_heap_create(buf, APR_BUCKET_BUFF_SIZE,
-                                           apr_bucket_free, context->ba);
-                /* Adjust the bucket to refer to the actual bytes read */
-                b->length = BytesRead;
-                context->overlapped.Pointer = b;
-            }
-            else
-                context->overlapped.Pointer = NULL;
+            lpfnGetAcceptExSockaddrs(buf, 0, PADDED_ADDR_SIZE, PADDED_ADDR_SIZE,
+                                     &context->sa_server, &context->sa_server_len,
+                                     &context->sa_client, &context->sa_client_len);
         }
         else /* (accf = 0)  e.g. 'none' */
         {
@@ -632,7 +654,6 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
              * os_sock_make and os_sock_put that it does not query).
              */
             WSAEventSelect(context->accept_socket, 0, 0);
-            context->overlapped.Pointer = NULL;
             err_count = 0;
 
             context->sa_server_len = sizeof(context->buff) / 2;
@@ -650,11 +671,12 @@ reinit: /* target of data or connect upon too many AcceptEx failures */
             }
         }
 
-        sockinfo.os_sock = &context->accept_socket;
-        sockinfo.local   = context->sa_server;
-        sockinfo.remote  = context->sa_client;
-        sockinfo.family  = context->sa_server->sa_family;
-        sockinfo.type    = SOCK_STREAM;
+        sockinfo.os_sock  = &context->accept_socket;
+        sockinfo.local    = context->sa_server;
+        sockinfo.remote   = context->sa_client;
+        sockinfo.family   = context->sa_server->sa_family;
+        sockinfo.type     = SOCK_STREAM;
+        sockinfo.protocol = IPPROTO_TCP;
         /* Restore the state corresponding to apr_os_sock_make's default
          * assumption of timeout -1 (really, a flaw of os_sock_make and
          * os_sock_put that it does not query to determine ->timeout).
@@ -736,24 +758,6 @@ static winnt_conn_ctx_t *winnt_get_connection(winnt_conn_ctx_t *context)
     return context;
 }
 
-apr_status_t winnt_insert_network_bucket(conn_rec *c,
-                                         apr_bucket_brigade *bb,
-                                         apr_socket_t *socket)
-{
-    apr_bucket *e;
-    winnt_conn_ctx_t *context = ap_get_module_config(c->conn_config,
-                                                     &mpm_winnt_module);
-    if (context == NULL || (e = context->overlapped.Pointer) == NULL)
-        return AP_DECLINED;
-
-    /* seed the brigade with AcceptEx read heap bucket */
-    APR_BRIGADE_INSERT_HEAD(bb, e);
-    /* also seed the brigade with the client socket. */
-    e = apr_bucket_socket_create(socket, c->bucket_alloc);
-    APR_BRIGADE_INSERT_TAIL(bb, e);
-    return APR_SUCCESS;
-}
-
 /*
  * worker_main()
  * Main entry point for the worker threads. Worker threads block in
@@ -761,19 +765,16 @@ apr_status_t winnt_insert_network_bucket(conn_rec *c,
  */
 static DWORD __stdcall worker_main(void *thread_num_val)
 {
-    apr_thread_t *thd = NULL;
+    apr_thread_t *thd;
     apr_os_thread_t osthd;
     static int requests_this_child = 0;
     winnt_conn_ctx_t *context = NULL;
     int thread_num = (int)thread_num_val;
     ap_sb_handle_t *sbh;
-    apr_bucket *e;
-    int rc;
     conn_rec *c;
     apr_int32_t disconnected;
 
     osthd = apr_os_thread_current();
-    apr_os_thread_put(&thd, &osthd, pchild);
 
     while (1) {
 
@@ -795,59 +796,34 @@ static DWORD __stdcall worker_main(void *thread_num_val)
             }
         }
 
-        e = context->overlapped.Pointer;
-
         ap_create_sb_handle(&sbh, context->ptrans, 0, thread_num);
         c = ap_run_create_connection(context->ptrans, ap_server_conf,
                                      context->sock, thread_num, sbh,
                                      context->ba);
 
-        if (!c)
-        {
+        if (!c) {
             /* ap_run_create_connection closes the socket on failure */
             context->accept_socket = INVALID_SOCKET;
-            if (e)
-                apr_bucket_free(e);
             continue;
         }
 
+        thd = NULL;
+        apr_os_thread_put(&thd, &osthd, context->ptrans);
         c->current_thread = thd;
 
-        /* follow ap_process_connection(c, context->sock) logic
-         * as it left us no chance to reinject our first data bucket.
-         */
-        ap_update_vhost_given_ip(c);
+        ap_process_connection(c, context->sock);
 
-        rc = ap_run_pre_connection(c, context->sock);
-        if (rc != OK && rc != DONE) {
-            c->aborted = 1;
-        }
+        apr_socket_opt_get(context->sock, APR_SO_DISCONNECTED, &disconnected);
 
-        if (e && c->aborted)
-        {
-            apr_bucket_free(e);
-        }
-        else
-        {
-            ap_set_module_config(c->conn_config, &mpm_winnt_module, context);
-        }
-
-        if (!c->aborted)
-        {
-            ap_run_process_connection(c);
-
-            apr_socket_opt_get(context->sock, APR_SO_DISCONNECTED,
-                               &disconnected);
-
-            if (!disconnected) {
-                context->accept_socket = INVALID_SOCKET;
+        if (!disconnected) {
+            context->accept_socket = INVALID_SOCKET;
+            if (!c->aborted) { 
                 ap_lingering_close(c);
             }
         }
     }
 
-    ap_update_child_status_from_indexes(0, thread_num, SERVER_DEAD,
-                                        (request_rec *) NULL);
+    ap_update_child_status_from_indexes(0, thread_num, SERVER_DEAD, NULL);
 
     return 0;
 }
@@ -907,12 +883,12 @@ static void create_listener_thread(void)
 }
 
 
-void child_main(apr_pool_t *pconf)
+void child_main(apr_pool_t *pconf, DWORD parent_pid)
 {
     apr_status_t status;
     apr_hash_t *ht;
     ap_listen_rec *lr;
-    HANDLE child_events[2];
+    HANDLE child_events[3];
     HANDLE *child_handles;
     int listener_started = 0;
     int threads_created = 0;
@@ -922,6 +898,7 @@ void child_main(apr_pool_t *pconf)
     DWORD tid;
     int rv;
     int i;
+    int num_events;
 
     apr_pool_create(&pchild, pconf);
     apr_pool_tag(pchild, "pchild");
@@ -938,6 +915,24 @@ void child_main(apr_pool_t *pconf)
     }
     child_events[0] = exit_event;
     child_events[1] = max_requests_per_child_event;
+
+    if (parent_pid != my_pid) {
+        child_events[2] = OpenProcess(SYNCHRONIZE, FALSE, parent_pid);
+        if (child_events[2] == NULL) {
+            num_events = 2;
+            ap_log_error(APLOG_MARK, APLOG_ERR, apr_get_os_error(), ap_server_conf, APLOGNO(02643)
+                         "Child: Failed to open handle to parent process %ld; "
+                         "will not react to abrupt parent termination", parent_pid);
+        }
+        else {
+            num_events = 3;
+        }
+    }
+    else {
+        /* presumably -DONE_PROCESS */
+        child_events[2] = NULL;
+        num_events = 2;
+    }
 
     /*
      * Wait until we have permission to start accepting connections.
@@ -979,10 +974,18 @@ void child_main(apr_pool_t *pconf)
     apr_thread_mutex_create(&child_lock, APR_THREAD_MUTEX_DEFAULT, pchild);
 
     while (1) {
+        int from_previous_generation = 0, starting_up = 0;
+
         for (i = 0; i < ap_threads_per_child; i++) {
             int *score_idx;
             int status = ap_scoreboard_image->servers[0][i].status;
             if (status != SERVER_GRACEFUL && status != SERVER_DEAD) {
+                if (ap_scoreboard_image->servers[0][i].generation != my_generation) {
+                    ++from_previous_generation;
+                }
+                else if (status == SERVER_STARTING) {
+                    ++starting_up;
+                }
                 continue;
             }
             ap_update_child_status_from_indexes(0, i, SERVER_STARTING, NULL);
@@ -1001,6 +1004,8 @@ void child_main(apr_pool_t *pconf)
                 ap_signal_parent(SIGNAL_PARENT_SHUTDOWN);
                 goto shutdown;
             }
+            ap_scoreboard_image->servers[0][i].pid = my_pid;
+            ap_scoreboard_image->servers[0][i].generation = my_generation;
             threads_created++;
             /* Save the score board index in ht keyed to the thread handle.
              * We need this when cleaning up threads down below...
@@ -1026,10 +1031,13 @@ void child_main(apr_pool_t *pconf)
         }
         /* wait for previous generation to clean up an entry in the scoreboard
          */
-        apr_sleep(1 * APR_USEC_PER_SEC);
+        ap_log_error(APLOG_MARK, APLOG_TRACE2, 0, ap_server_conf,
+                     "Child: %d threads starting up, %d remain from a prior generation",
+                     starting_up, from_previous_generation);
+        apr_sleep(apr_time_from_sec(1));
     }
 
-    /* Wait for one of three events:
+    /* Wait for one of these events:
      * exit_event:
      *    The exit_event is signaled by the parent process to notify
      *    the child that it is time to exit.
@@ -1037,6 +1045,8 @@ void child_main(apr_pool_t *pconf)
      * max_requests_per_child_event:
      *    This event is signaled by the worker threads to indicate that
      *    the process has handled MaxConnectionsPerChild connections.
+     *
+     * parent process exiting
      *
      * TIMEOUT:
      *    To do periodic maintenance on the server (check for thread exits,
@@ -1055,10 +1065,11 @@ void child_main(apr_pool_t *pconf)
      */
     while (1) {
 #if !APR_HAS_OTHER_CHILD
-        rv = WaitForMultipleObjects(2, (HANDLE *)child_events, FALSE, INFINITE);
+        rv = WaitForMultipleObjects(num_events, (HANDLE *)child_events, FALSE, INFINITE);
         cld = rv - WAIT_OBJECT_0;
 #else
-        rv = WaitForMultipleObjects(2, (HANDLE *)child_events, FALSE, 1000);
+        /* THIS IS THE EXPECTED BUILD VARIATION -- APR_HAS_OTHER_CHILD */
+        rv = WaitForMultipleObjects(num_events, (HANDLE *)child_events, FALSE, 1000);
         cld = rv - WAIT_OBJECT_0;
         if (rv == WAIT_TIMEOUT) {
             apr_proc_other_child_refresh_all(APR_OC_REASON_RUNNING);
@@ -1070,6 +1081,17 @@ void child_main(apr_pool_t *pconf)
             ap_log_error(APLOG_MARK, APLOG_CRIT, apr_get_os_error(),
                          ap_server_conf, APLOGNO(00356)
                          "Child: WAIT_FAILED -- shutting down server");
+            /* check handle validity to identify a possible culprit */
+            for (i = 0; i < num_events; i++) {
+                DWORD out_flags;
+
+                if (0 == GetHandleInformation(child_events[i], &out_flags)) {
+                    ap_log_error(APLOG_MARK, APLOG_CRIT, apr_get_os_error(),
+                                 ap_server_conf, APLOGNO(02644)
+                                 "Child: Event handle #%d (%pp) is invalid",
+                                 i, child_events[i]);
+                }
+            }
             break;
         }
         else if (cld == 0) {
@@ -1077,6 +1099,13 @@ void child_main(apr_pool_t *pconf)
             ap_log_error(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, ap_server_conf, APLOGNO(00357)
                          "Child: Exit event signaled. Child process is "
                          "ending.");
+            break;
+        }
+        else if (cld == 2) {
+            /* The parent is dead.  Shutdown the child process. */
+            ap_log_error(APLOG_MARK, APLOG_CRIT, 0, ap_server_conf, APLOGNO(02538)
+                         "Child: Parent process exited abruptly. Child process "
+                         "is ending");
             break;
         }
         else {
@@ -1226,13 +1255,13 @@ void child_main(apr_pool_t *pconf)
                      threads_created);
     }
     for (i = 0; i < threads_created; i++) {
-        int *score_idx;
+        int *idx;
         TerminateThread(child_handles[i], 1);
         CloseHandle(child_handles[i]);
         /* Reset the scoreboard entry for the thread we just whacked */
-        score_idx = apr_hash_get(ht, &child_handles[i], sizeof(HANDLE));
-        if (score_idx) {
-            ap_update_child_status_from_indexes(0, *score_idx, SERVER_DEAD, NULL);
+        idx = apr_hash_get(ht, &child_handles[i], sizeof(HANDLE));
+        if (idx) {
+            ap_update_child_status_from_indexes(0, *idx, SERVER_DEAD, NULL);
         }
     }
     ap_log_error(APLOG_MARK, APLOG_NOTICE, APR_SUCCESS, ap_server_conf, APLOGNO(00364)
@@ -1244,6 +1273,9 @@ void child_main(apr_pool_t *pconf)
 
     apr_pool_destroy(pchild);
     CloseHandle(exit_event);
+    if (child_events[2] != NULL) {
+        CloseHandle(child_events[2]);
+    }
 }
 
 #endif /* def WIN32 */

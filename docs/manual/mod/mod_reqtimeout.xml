@@ -28,7 +28,6 @@
 <status>Extension</status>
 <sourcefile>mod_reqtimeout.c</sourcefile>
 <identifier>reqtimeout_module</identifier>
-<compatibility>Available in Apache HTTPD 2.2.15 and later</compatibility>
 
 <section id="examples"><title>Examples</title>
 
@@ -37,21 +36,21 @@
         Allow 10 seconds to receive the request including the headers and
         30 seconds for receiving the request body:
 
-        <example>
+        <highlight language="config">
           RequestReadTimeout header=10 body=30
-        </example>
+        </highlight>
       </li>
 
       <li>
         Allow at least 10 seconds to receive the request body.
         If the client sends data, increase the timeout by 1 second for every
-        1000 bytes received, with no upper limit for the timeout (exept for
+        1000 bytes received, with no upper limit for the timeout (except for
         the limit given indirectly by
         <directive module="core">LimitRequestBody</directive>):
 
-        <example>
+        <highlight language="config">
           RequestReadTimeout body=10,MinRate=1000
-        </example>
+        </highlight>
       </li>
 
       <li>
@@ -60,9 +59,9 @@
         500 bytes received. But do not allow more than 30 seconds for the
         request including the headers:
 
-        <example>
+        <highlight language="config">
           RequestReadTimeout header=10-30,MinRate=500
-        </example>
+        </highlight>
       </li>
 
       <li>
@@ -70,9 +69,9 @@
         If a common configuration is used for http and https virtual hosts, the
         timeouts should not be set too low:
 
-        <example>
+        <highlight language="config">
           RequestReadTimeout header=20-40,MinRate=500 body=20,MinRate=500
-        </example>
+        </highlight>
       </li>
 
     </ol>
@@ -89,7 +88,7 @@
 <default>header=20-40,MinRate=500 body=20,MinRate=500</default>
 <contextlist><context>server config</context><context>virtual host</context>
 </contextlist>
-<compatibility>Available in version 2.2.15 and later; defaulted to disabled in
+<compatibility>Defaulted to disabled in
 version 2.3.14 and earlier.</compatibility>
 
 <usage>

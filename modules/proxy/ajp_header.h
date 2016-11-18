@@ -41,15 +41,26 @@
 #define SC_A_REQ_ATTRIBUTE      (unsigned char)10
 #define SC_A_SSL_KEY_SIZE       (unsigned char)11       /* only in if JkOptions +ForwardKeySize */
 #define SC_A_SECRET             (unsigned char)12
+#define SC_A_STORED_METHOD      (unsigned char)13
 #define SC_A_ARE_DONE           (unsigned char)0xFF
 
 /*
  * AJP private request attributes
  *
  * The following request attribute is recognized by Tomcat
+ * to contain the SSL protocol name
+ */
+#define SC_A_SSL_PROTOCOL        ("AJP_SSL_PROTOCOL")
+/*
+ * The following request attribute is recognized by Tomcat
  * to contain the forwarded remote port.
  */
 #define SC_A_REQ_REMOTE_PORT    ("AJP_REMOTE_PORT")
+/*
+ * The following request attribute is recognized by Tomcat
+ * to contain the forwarded local ip address.
+ */
+#define SC_A_REQ_LOCAL_ADDR     ("AJP_LOCAL_ADDR")
 
 /*
  * Request methods, coded as numbers instead of strings.
@@ -111,6 +122,7 @@
 #define SC_M_MERGE              (unsigned char)25
 #define SC_M_BASELINE_CONTROL   (unsigned char)26
 #define SC_M_MKACTIVITY         (unsigned char)27
+#define SC_M_JK_STORED          (unsigned char)0xFF
 
 
 /*

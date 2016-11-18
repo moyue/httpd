@@ -34,7 +34,7 @@
 
   <section id="introduction">
     <title>Introduction</title>
-    
+
     <p>The Apache HTTP server offers a range of caching features that
     are designed to improve the performance of the server in various
     ways.</p>
@@ -104,7 +104,7 @@
     </related>
 
     <p>The HTTP protocol contains built in support for an in-line caching
-    mechanism 
+    mechanism
     <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html">
     described by section 13 of RFC2616</a>, and the
     <module>mod_cache</module> module can be used to take advantage of
@@ -180,11 +180,15 @@
 
               <p>In this scenario, the cache behaves as if it has been "bolted
               on" to the front of the server.</p>
-              
+
               <p>This mode offers the best performance, as the majority of
               server processing is bypassed. This mode however also bypasses the
               authentication and authorization phases of server processing, so
               this mode should be chosen with care when this is important.</p>
+
+              <p> Requests with an "Authorization" header (for example, HTTP Basic
+              Authentication) are neither cacheable nor served from the cache
+              when <module>mod_cache</module> is running in this phase.</p>
           </dd>
           <dt>Normal handler phase</dt>
           <dd>
@@ -238,7 +242,7 @@
       explicit freshness lifetime with the <code>Cache-Control</code>
       header's <code>max-age</code> or <code>s-maxage</code> fields, or
       by including an <code>Expires</code> header.</p>
-      
+
       <p>At the same time, the origin server defined freshness lifetime can
       be overridden by a client when the client presents their own
       <code>Cache-Control</code> header within the request. In this case,
@@ -305,7 +309,7 @@
       see if the file has changed in size or modification time. As such, even
       local content may still be served faster from the cache if it has not
       changed.</p>
-      
+
       <p>Origin servers should make every effort to support conditional
       requests as is practical, however if conditional requests are not
       supported, the origin will respond as if the request was not
@@ -380,7 +384,7 @@
       particulars of the request that are not covered by HTTP negotiation,
       should not be cached. This content should declare itself uncacheable
       using the <code>Cache-Control</code> header.</p>
-      
+
       <p>If content changes often, expressed by a freshness lifetime of minutes
       or seconds, the content can still be cached, however it is highly
       desirable that the origin server supports
@@ -400,7 +404,7 @@
       based on the value of headers in the request, for example to serve
       multiple languages at the same URL, HTTP's caching mechanism makes it
       possible to cache multiple variants of the same page at the same URL.</p>
-      
+
       <p>This is done by the origin server adding a <code>Vary</code> header
       to indicate which headers must be taken into account by a cache when
       determining whether two variants are different from one another.</p>
@@ -414,12 +418,34 @@ Vary: negotiate,accept-language,accept-charset
       <p><module>mod_cache</module> will only serve the cached content to
       requesters with accept-language and accept-charset headers
       matching those of the original request.</p>
-      
+
       <p>Multiple variants of the content can be cached side by side,
       <module>mod_cache</module> uses the <code>Vary</code> header and the
       corresponding values of the request headers listed by <code>Vary</code>
       to decide on which of many variants to return to the client.</p>
     </section>
+
+  </section>
+
+  <section id="examples">
+
+    <title>Cache Setup Examples</title>
+
+    <related>
+      <modulelist>
+        <module>mod_cache</module>
+        <module>mod_cache_disk</module>
+        <module>mod_cache_socache</module>
+        <module>mod_socache_memcache</module>
+      </modulelist>
+      <directivelist>
+        <directive module="mod_cache">CacheEnable</directive>
+        <directive module="mod_cache_disk">CacheRoot</directive>
+        <directive module="mod_cache_disk">CacheDirLevels</directive>
+        <directive module="mod_cache_disk">CacheDirLength</directive>
+        <directive module="mod_cache_socache">CacheSocache</directive>
+      </directivelist>
+    </related>
 
     <section id="disk">
       <title>Caching to Disk</title>
@@ -430,12 +456,12 @@ Vary: negotiate,accept-language,accept-charset
 
       <p>Typically the module will be configured as so;</p>
 
-      <example>
-CacheRoot   /var/cache/apache/<br />
-CacheEnable disk /<br />
-CacheDirLevels 2<br />
+      <highlight language="config">
+CacheRoot   "/var/cache/apache/"
+CacheEnable disk /
+CacheDirLevels 2
 CacheDirLength 1
-      </example>
+      </highlight>
 
       <p>Importantly, as the cached files are locally stored, operating system
       in-memory caching will typically be applied to their access also. So
@@ -523,7 +549,7 @@ CacheDirLength 1
       or more to process very large (tens of gigabytes) caches and if you are
       running it from cron it is recommended that you determine how long a typical
       run takes, to avoid running more than one instance at a time.</p>
- 
+
       <p>It is also recommended that an appropriate "nice" level is chosen for
       htcacheclean so that the tool does not cause excessive disk io while the
       server is running.</p>
@@ -540,11 +566,51 @@ CacheDirLength 1
       leave enough "grow room" following a clean.</p>
     </section>
 
+    <section id="memcache">
+      <title>Caching to memcached</title>
+
+      <p>Using the <module>mod_cache_socache</module> module, <module>mod_cache</module>
+      can cache data from a variety of implementations (aka: "providers"). Using the
+      <module>mod_socache_memcache</module> module, for example, one can specify that
+      <a href="http://memcached.org">memcached</a> is to be used as the
+      the backend storage mechanism.</p>
+
+      <p>Typically the module will be configured as so:</p>
+
+      <highlight language="config">
+CacheEnable socache /
+CacheSocache memcache:memcd.example.com:11211
+      </highlight>
+
+      <p>Additional <code>memcached</code> servers can be specified by
+      appending them to the end of the <code>CacheSocache memcache:</code>
+      line separated by commas:</p>
+
+      <highlight language="config">
+CacheEnable socache /
+CacheSocache memcache:mem1.example.com:11211,mem2.example.com:11212
+      </highlight>
+
+      <p>This format is also used with the other various <module>mod_cache_socache</module>
+      providers. For example:</p>
+
+      <highlight language="config">
+CacheEnable socache /
+CacheSocache shmcb:/path/to/datafile(512000)
+      </highlight>
+
+      <highlight language="config">
+CacheEnable socache /
+CacheSocache dbm:/path/to/datafile
+      </highlight>
+
+    </section>
+
   </section>
 
   <section id="socache-caching">
 
-    <title>Two-state Key/Value Shared Object Caching</title>
+    <title>General Two-state Key/Value Shared Object Caching</title>
 
     <related>
       <modulelist>
@@ -561,7 +627,7 @@ CacheDirLength 1
           <directive module="mod_ssl">SSLStaplingCache</directive>
         </directivelist>
     </related>
-    
+
     <p>The Apache HTTP server offers a low level shared object cache for
     caching information such as SSL sessions, or authentication credentials,
     within the <a href="socache.html">socache</a> interface.</p>
@@ -663,9 +729,9 @@ CacheDirLength 1
         instructs httpd to open the file when it is started and to re-use
         this file-handle for all subsequent access to this file.</p>
 
-        <example>
+        <highlight language="config">
         CacheFile /usr/local/apache2/htdocs/index.html
-        </example>
+        </highlight>
 
         <p>If you intend to cache a large number of files in this manner, you
         must ensure that your operating system's limit for the number of open
@@ -755,9 +821,9 @@ sys     0m0.000s</pre>
         start time (using the mmap system call). httpd will use the in-memory
         contents for all subsequent accesses to this file.</p>
 
-        <example>
+        <highlight language="config">
         MMapFile /usr/local/apache2/htdocs/index.html
-        </example>
+        </highlight>
 
         <p>As with the
         <directive module="mod_file_cache">CacheFile</directive> directive, any
@@ -868,7 +934,7 @@ sys     0m0.000s</pre>
       on the popularity of the particular web site thousands or millions of
       duplicate cache entries could be created for the same URL, crowding
       out other entries in the cache.</p>
-      
+
       <p>In other cases, there may be a need to change the URL of a particular
       resource on every request, usually by adding a "cachebuster" string to
       the URL. If this content is declared cacheable by a server for a

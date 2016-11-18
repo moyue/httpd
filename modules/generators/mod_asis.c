@@ -70,7 +70,7 @@ static int asis_handler(request_rec *r)
         /* This redirect needs to be a GET no matter what the original
          * method was.
          */
-        r->method = apr_pstrdup(r->pool, "GET");
+        r->method = "GET";
         r->method_number = M_GET;
 
         ap_internal_redirect_handler(location, r);
@@ -101,7 +101,7 @@ static int asis_handler(request_rec *r)
         if (rv != APR_SUCCESS) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, APLOGNO(01236)
                           "mod_asis: ap_pass_brigade failed for file %s", r->filename);
-            return HTTP_INTERNAL_SERVER_ERROR;
+            return AP_FILTER_ERROR;
         }
     }
     else {

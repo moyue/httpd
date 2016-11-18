@@ -64,7 +64,7 @@ module AP_MODULE_DECLARE_DATA sed_module;
 static apr_status_t log_sed_errf(void *data, const char *error)
 {
     request_rec *r = (request_rec *) data;
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", error);
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02998) "%s", error);
     return APR_SUCCESS;
 }
 
@@ -268,7 +268,7 @@ static apr_status_t sed_response_filter(ap_filter_t *f,
                                         apr_bucket_brigade *bb)
 {
     apr_bucket *b;
-    apr_status_t status;
+    apr_status_t status = APR_SUCCESS;
     sed_config *cfg = ap_get_module_config(f->r->per_dir_config,
                                            &sed_module);
     sed_filter_ctxt *ctx = f->ctx;
@@ -293,9 +293,9 @@ static apr_status_t sed_response_filter(ap_filter_t *f,
              return status;
         ctx = f->ctx;
         apr_table_unset(f->r->headers_out, "Content-Length");
-    }
 
-    ctx->bb = apr_brigade_create(f->r->pool, f->c->bucket_alloc);
+        ctx->bb = apr_brigade_create(f->r->pool, f->c->bucket_alloc);
+    }
 
     /* Here is the main logic. Iterate through all the buckets, read the
      * content of the bucket, call sed_eval_buffer on the data.
@@ -312,68 +312,56 @@ static apr_status_t sed_response_filter(ap_filter_t *f,
      * evaluation is allocated on request's pool so it will be cleared once
      * request is over.
      *
-     * If flush bucket is found then append the the flush bucket to ctx->bb
+     * If flush bucket is found then append the flush bucket to ctx->bb
      * and pass it to next filter. There may be some data which will still be
      * in sed's internal buffer which can't be flushed until new line
      * character is arrived.
      */
-    for (b = APR_BRIGADE_FIRST(bb); b != APR_BRIGADE_SENTINEL(bb);) {
-        const char *buf = NULL;
-        apr_size_t bytes = 0;
+    while (!APR_BRIGADE_EMPTY(bb)) {
+        b = APR_BRIGADE_FIRST(bb);
         if (APR_BUCKET_IS_EOS(b)) {
-            apr_bucket *b1 = APR_BUCKET_NEXT(b);
             /* Now clean up the internal sed buffer */
             sed_finalize_eval(&ctx->eval, ctx);
             status = flush_output_buffer(ctx);
             if (status != APR_SUCCESS) {
-                clear_ctxpool(ctx);
-                return status;
+                break;
             }
+            /* Move the eos bucket to ctx->bb brigade */
             APR_BUCKET_REMOVE(b);
-            /* Insert the eos bucket to ctx->bb brigade */
             APR_BRIGADE_INSERT_TAIL(ctx->bb, b);
-            b = b1;
         }
         else if (APR_BUCKET_IS_FLUSH(b)) {
-            apr_bucket *b1 = APR_BUCKET_NEXT(b);
-            APR_BUCKET_REMOVE(b);
             status = flush_output_buffer(ctx);
             if (status != APR_SUCCESS) {
-                clear_ctxpool(ctx);
-                return status;
+                break;
             }
-            APR_BRIGADE_INSERT_TAIL(ctx->bb, b);
-            b = b1;
-        }
-        else if (APR_BUCKET_IS_METADATA(b)) {
-            b = APR_BUCKET_NEXT(b);
-        }
-        else if (apr_bucket_read(b, &buf, &bytes, APR_BLOCK_READ)
-                 == APR_SUCCESS) {
-            apr_bucket *b1 = APR_BUCKET_NEXT(b);
-            status = sed_eval_buffer(&ctx->eval, buf, bytes, ctx);
-            if (status != APR_SUCCESS) {
-                clear_ctxpool(ctx);
-                return status;
-            }
+            /* Move the flush bucket to ctx->bb brigade */
             APR_BUCKET_REMOVE(b);
-            apr_bucket_delete(b);
-            b = b1;
+            APR_BRIGADE_INSERT_TAIL(ctx->bb, b);
         }
         else {
-            apr_bucket *b1 = APR_BUCKET_NEXT(b);
-            APR_BUCKET_REMOVE(b);
-            b = b1;
+            if (!APR_BUCKET_IS_METADATA(b)) {
+                const char *buf = NULL;
+                apr_size_t bytes = 0;
+
+                status = apr_bucket_read(b, &buf, &bytes, APR_BLOCK_READ);
+                if (status == APR_SUCCESS) {
+                    status = sed_eval_buffer(&ctx->eval, buf, bytes, ctx);
+                }
+                if (status != APR_SUCCESS) {
+                    break;
+                }
+            }
+            apr_bucket_delete(b);
         }
     }
-    apr_brigade_cleanup(bb);
-    status = flush_output_buffer(ctx);
-    if (status != APR_SUCCESS) {
-        clear_ctxpool(ctx);
-        return status;
+    if (status == APR_SUCCESS) {
+        status = flush_output_buffer(ctx);
     }
     if (!APR_BRIGADE_EMPTY(ctx->bb)) {
-        status = ap_pass_brigade(f->next, ctx->bb);
+        if (status == APR_SUCCESS) {
+            status = ap_pass_brigade(f->next, ctx->bb);
+        }
         apr_brigade_cleanup(ctx->bb);
     }
     clear_ctxpool(ctx);
@@ -424,7 +412,7 @@ static apr_status_t sed_request_filter(ap_filter_t *f,
      * the buckets in bbinp and read the data from buckets and invoke
      * sed_eval_buffer on the data. libsed will generate its output using
      * sed_write_output which will add data in ctx->bb. Do it until it have
-     * atleast one bucket bucket in ctx->bb. At the end of data eos bucket
+     * atleast one bucket in ctx->bb. At the end of data eos bucket
      * should be there.
      *
      * Once eos bucket is seen, then invoke sed_finalize_eval to clear the

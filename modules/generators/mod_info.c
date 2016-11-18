@@ -113,7 +113,7 @@ static void put_int_flush_right(request_rec * r, int i, int field)
         if (r)
             ap_rputc('0' + i % 10, r);
         else
-            apr_file_putc('0' + i % 10, out);
+            apr_file_putc((char)('0' + i % 10), out);
     }
     else {
         if (r)
@@ -454,12 +454,19 @@ static int show_server_settings(request_rec * r)
                "<tt>%s</tt></dt>\n", APU_VERSION_STRING);
 #endif
     ap_rprintf(r,
+               "<dt><strong>Server loaded PCRE Version:</strong> "
+               "<tt>%s</tt></dt>\n", ap_pcre_version_string(AP_REG_PCRE_LOADED));
+    ap_rprintf(r,
+               "<dt><strong>Compiled with PCRE Version:</strong> "
+               "<tt>%s</tt></dt>\n", ap_pcre_version_string(AP_REG_PCRE_COMPILED));
+    ap_rprintf(r,
                "<dt><strong>Module Magic Number:</strong> "
                "<tt>%d:%d</tt></dt>\n", MODULE_MAGIC_NUMBER_MAJOR,
                MODULE_MAGIC_NUMBER_MINOR);
     ap_rprintf(r,
                "<dt><strong>Hostname/port:</strong> "
-               "<tt>%s:%u</tt></dt>\n", ap_get_server_name(r),
+               "<tt>%s:%u</tt></dt>\n",
+               ap_escape_html(r->pool, ap_get_server_name(r)),
                ap_get_server_port(r));
     ap_rprintf(r,
                "<dt><strong>Timeouts:</strong> "
@@ -784,7 +791,7 @@ static int display_info(request_rec * r)
              "  <title>Server Information</title>\n" "</head>\n", r);
     ap_rputs("<body><h1 style=\"text-align: center\">"
              "Apache Server Information</h1>\n", r);
-    if (!r->args || strcasecmp(r->args, "list")) {
+    if (!r->args || ap_cstr_casecmp(r->args, "list")) {
         if (!r->args) {
             ap_rputs("<dl><dt><tt>Subpages:<br />", r);
             ap_rputs("<a href=\"?config\">Configuration Files</a>, "
@@ -818,19 +825,19 @@ static int display_info(request_rec * r)
             ap_rputs("</tt></dt></dl><hr />", r);
         }
 
-        if (!r->args || !strcasecmp(r->args, "server")) {
+        if (!r->args || !ap_cstr_casecmp(r->args, "server")) {
             show_server_settings(r);
         }
 
-        if (!r->args || !strcasecmp(r->args, "hooks")) {
+        if (!r->args || !ap_cstr_casecmp(r->args, "hooks")) {
             show_active_hooks(r);
         }
 
-        if (!r->args || !strcasecmp(r->args, "providers")) {
+        if (!r->args || !ap_cstr_casecmp(r->args, "providers")) {
             show_providers(r);
         }
 
-        if (r->args && 0 == strcasecmp(r->args, "config")) {
+        if (r->args && 0 == ap_cstr_casecmp(r->args, "config")) {
             ap_rputs("<dl><dt><strong>Configuration:</strong>\n", r);
             mod_info_module_cmds(r, NULL, ap_conftree, 0, 0);
             ap_rputs("</dl><hr />", r);
@@ -841,7 +848,7 @@ static int display_info(request_rec * r)
                  modules = get_sorted_modules(r->pool);
             for (i = 0; i < modules->nelts; i++) {
                 modp = APR_ARRAY_IDX(modules, i, module *);
-                if (!r->args || !strcasecmp(modp->name, r->args)) {
+                if (!r->args || !ap_cstr_casecmp(modp->name, r->args)) {
                     ap_rprintf(r,
                                "<dl><dt><a name=\"%s\"><strong>Module Name:</strong></a> "
                                "<font size=\"+1\"><tt><a href=\"?%s\">%s</a></tt></font></dt>\n",
@@ -939,7 +946,7 @@ static int display_info(request_rec * r)
                     }
                 }
             }
-            if (!modp && r->args && strcasecmp(r->args, "server")) {
+            if (!modp && r->args && ap_cstr_casecmp(r->args, "server")) {
                 ap_rputs("<p><b>No such module</b></p>\n", r);
             }
         }

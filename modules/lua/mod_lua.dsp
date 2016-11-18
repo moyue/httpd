@@ -43,7 +43,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MD /W3 /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /FD /c
-# ADD CPP /nologo /MD /W3 /O2 /Oy- /Zi /I "../../include" /I "../../srclib/apr/include" /I "../../srclib/apr-util/include" /I "../../srclib/lua/src" /I "../ssl" /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "AP_LUA_DECLARE_EXPORT" /Fd"Release\mod_lua_src" /FD /c
+# ADD CPP /nologo /MD /W3 /O2 /Oy- /Zi /I "../../include" /I "../../srclib/apr/include" /I "../../srclib/apr-util/include" /I "../../srclib/lua/src" /I "../ssl" /I "../database" /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "AP_LUA_DECLARE_EXPORT" /Fd"Release\mod_lua_src" /FD /c
 # ADD BASE MTL /nologo /D "NDEBUG" /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x409 /d "NDEBUG"
@@ -52,8 +52,8 @@ BSC32=bscmake.exe
 # ADD BASE BSC32 /nologo
 # ADD BSC32 /nologo
 LINK32=link.exe
-# ADD BASE LINK32 kernel32.lib /nologo /subsystem:windows /dll /out:".\Release\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so
-# ADD LINK32 kernel32.lib lua51.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Release\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so /opt:ref /libpath:"../../srclib/lua/src"
+# ADD BASE LINK32 kernel32.lib ws2_32.lib /nologo /subsystem:windows /dll /out:".\Release\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so
+# ADD LINK32 kernel32.lib ws2_32.lib lua51.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Release\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so /opt:ref /libpath:"../../srclib/lua/src"
 # Begin Special Build Tool
 TargetPath=.\Release\mod_lua.so
 SOURCE="$(InputPath)"
@@ -75,7 +75,7 @@ PostBuild_Cmds=if exist $(TargetPath).manifest mt.exe -manifest $(TargetPath).ma
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MDd /W3 /EHsc /Zi /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /FD /c
-# ADD CPP /nologo /MDd /W3 /EHsc /Zi /Od /I "../../include" /I "../../srclib/apr/include" /I "../../srclib/apr-util/include" /I "../../srclib/lua/src" /I "../ssl" /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "AP_LUA_DECLARE_EXPORT" /Fd"Debug\mod_lua_src" /FD /c
+# ADD CPP /nologo /MDd /W3 /EHsc /Zi /Od /I "../../include" /I "../../srclib/apr/include" /I "../../srclib/apr-util/include" /I "../../srclib/lua/src" /I "../ssl" /I "../database" /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "AP_LUA_DECLARE_EXPORT" /Fd"Debug\mod_lua_src" /FD /c
 # ADD BASE MTL /nologo /D "_DEBUG" /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x409 /d "_DEBUG"
@@ -84,8 +84,8 @@ BSC32=bscmake.exe
 # ADD BASE BSC32 /nologo
 # ADD BSC32 /nologo
 LINK32=link.exe
-# ADD BASE LINK32 kernel32.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Debug\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so
-# ADD LINK32 kernel32.lib lua51.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Debug\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so /libpath:"../../srclib/lua/src"
+# ADD BASE LINK32 kernel32.lib ws2_32.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Debug\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so
+# ADD LINK32 kernel32.lib ws2_32.lib lua51.lib /nologo /subsystem:windows /dll /incremental:no /debug /out:".\Debug\mod_lua.so" /base:@..\..\os\win32\BaseAddr.ref,mod_lua.so /libpath:"../../srclib/lua/src"
 # Begin Special Build Tool
 TargetPath=.\Debug\mod_lua.so
 SOURCE="$(InputPath)"
@@ -117,6 +117,14 @@ SOURCE=.\lua_config.h
 # End Source File
 # Begin Source File
 
+SOURCE=.\lua_passwd.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\lua_passwd.h
+# End Source File
+# Begin Source File
+
 SOURCE=.\lua_request.c
 # End Source File
 # Begin Source File
@@ -138,6 +146,14 @@ SOURCE=.\mod_lua.c
 # Begin Source File
 
 SOURCE=.\mod_lua.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\lua_dbd.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\lua_dbd.h
 # End Source File
 # Begin Source File
 

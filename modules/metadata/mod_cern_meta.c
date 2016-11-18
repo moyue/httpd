@@ -237,22 +237,22 @@ static int scan_meta_file(request_rec *r, apr_file_t *f)
         }
 
         *l++ = '\0';
-        while (*l && apr_isspace(*l))
+        while (apr_isspace(*l))
             ++l;
 
-        if (!strcasecmp(w, "Content-type")) {
+        if (!ap_cstr_casecmp(w, "Content-type")) {
             char *tmp;
             /* Nuke trailing whitespace */
 
             char *endp = l + strlen(l) - 1;
             while (endp > l && apr_isspace(*endp))
-            *endp-- = '\0';
+                *endp-- = '\0';
 
             tmp = apr_pstrdup(r->pool, l);
             ap_content_type_tolower(tmp);
             ap_set_content_type(r, tmp);
         }
-        else if (!strcasecmp(w, "Status")) {
+        else if (!ap_cstr_casecmp(w, "Status")) {
             sscanf(l, "%d", &r->status);
             r->status_line = apr_pstrdup(r->pool, l);
         }
@@ -332,7 +332,7 @@ static int add_cern_meta_data(request_rec *r)
      */
     rr = ap_sub_req_lookup_file(metafilename, r, NULL);
     if (rr->status != HTTP_OK) {
-    ap_destroy_sub_req(rr);
+        ap_destroy_sub_req(rr);
         return DECLINED;
     }
     ap_destroy_sub_req(rr);

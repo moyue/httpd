@@ -71,10 +71,16 @@
     <p>When a request arrives, the server will find the best (most specific) matching
     <directive type="section" module="core">VirtualHost</directive> argument based on
     the IP address and port used by the request.  If there is more than one virtual host
-    containing this best-match address and port combination,  Apache will further
+    containing this best-match address and port combination, Apache will further
     compare the <directive module="core" >ServerName</directive> and <directive
-    module="core">ServerAlias</directive>  directives to the server name
+    module="core">ServerAlias</directive> directives to the server name
     present in the request.</p>
+
+    <p>If you omit the <directive module="core">ServerName</directive>
+    directive from any name-based virtual host, the server will default
+    to a fully qualified domain name (FQDN) derived from the system hostname.
+    This implicitly set server name can lead to counter-intuitive virtual host
+    matching and is discouraged.</p>
 
     <section id="defaultvhost"><title>The default name-based vhost for an IP and port combination </title>
     <p> If no matching ServerName or ServerAlias is found in the set of
@@ -122,27 +128,37 @@
         virtual hosts.</p>
     </note>
 
+    <note><title>ServerName inheritance</title>
+       <p> It is best to always explicitly list a  <directive module="core"
+       >ServerName</directive> in every name-based virtual host.</p>
+       <p>If a <directive module="core">VirtualHost</directive> doesn't specify
+       a <directive module="core">ServerName</directive>, a server name will be
+       inherited from the base server configuration.  If no server name was
+       specified globally, one is detected at startup through reverse DNS resolution
+       of the first listening address.  In either case, this inherited server name
+       will influence name-based virtual host resolution, so it is best to always
+       explicitly list a  <directive module="core">ServerName</directive> in every
+       name-based virtual host.</p>
+    </note>
+
     <p>For example, suppose that you are serving the domain
     <code>www.example.com</code> and you wish to add the virtual host
     <code>other.example.com</code>, which points at the same IP address.
     Then you simply add the following to <code>httpd.conf</code>:</p>
 
-    <example>
-        &lt;VirtualHost *:80&gt;<br />
-        <indent>
-            # This first-listed virtual host is also the default for *:80
-            ServerName www.example.com<br />
-            ServerAlias example.com <br />
-            DocumentRoot /www/domain<br />
-        </indent>
-        &lt;/VirtualHost&gt;<br />
-        <br />
-        &lt;VirtualHost *:80&gt;<br />
-        <indent>ServerName other.example.com<br />
-            DocumentRoot /www/otherdomain<br />
-        </indent>
-        &lt;/VirtualHost&gt;<br />
-    </example>
+    <highlight language="config">
+&lt;VirtualHost *:80&gt;
+    # This first-listed virtual host is also the default for *:80
+    ServerName www.example.com
+    ServerAlias example.com
+    DocumentRoot "/www/domain"
+&lt;/VirtualHost&gt;
+
+&lt;VirtualHost *:80&gt;
+    ServerName other.example.com
+    DocumentRoot "/www/otherdomain"
+&lt;/VirtualHost&gt;
+    </highlight>
 
     <p>You can alternatively specify an explicit IP address in place of the
     <code>*</code> in <directive type="section" module="core"
@@ -159,9 +175,9 @@
     the listed names are other names which people can use to see that same
     web site:</p>
 
-    <example>
+    <highlight language="config">
         ServerAlias example.com *.example.com
-    </example>
+    </highlight>
 
     <p>then requests for all hosts in the <code>example.com</code> domain will
     be served by the <code>www.example.com</code> virtual host. The wildcard
@@ -172,11 +188,16 @@
     address associated with your server.</p>
 
     <p>Name-based virtual hosts for the best-matching set of  <directive
-    type="section" module="core">virtualhost</directive>s are processsed 
+    type="section" module="core">virtualhost</directive>s are processed
     in the order they appear in the configuration.  The first matching <directive
     module="core">ServerName</directive> or <directive module="core"
     >ServerAlias</directive> is used, with no different precedence for wildcards
     (nor for ServerName vs. ServerAlias).  </p>
+
+    <p>The complete list of names in the <directive module="core"
+    >VirtualHost</directive>
+    directive are treated just like a (non wildcard)
+    <directive module="core">ServerAlias</directive>.</p>
 
     <p>Finally, you can fine-tune the configuration of the virtual hosts
     by placing other directives inside the <directive type="section"

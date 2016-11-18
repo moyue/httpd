@@ -45,13 +45,15 @@ fi
 
 APACHE_MODULE(so, DSO capability.  This module will be automatically enabled unless you build all modules statically., , , $enable_so)
 
-APACHE_MODULE(watchdog, Watchdog module, , , , [
+APACHE_MODULE(watchdog, Watchdog module, , , most, [
     APR_CHECK_APR_DEFINE(APR_HAS_THREADS)
     if test $ac_cv_define_APR_HAS_THREADS = "no"; then
         AC_MSG_WARN([mod_watchdog requires apr to be built with --enable-threads])
         enable_watchdog=no
     fi
 ])
+
+APACHE_MODULE(macro, Define and use macros in configuration files, , , most)
 
 APR_ADDTO(INCLUDES, [-I\$(top_srcdir)/$modpath_current])
 

@@ -21,9 +21,11 @@ APLOG_USE_MODULE(proxy_ajp);
 #define AJP_MSG_DUMP_BYTES_PER_LINE 16
 /* 2 hex digits plus space plus one char per dumped byte */
 /* plus prefix plus separator plus '\0' */
-#define AJP_MSG_DUMP_LINE_LENGTH    (strlen("XX .") + \
-                                     strlen("XXXX    ") + \
-                                     strlen(" - ") + 1)
+#define AJP_MSG_DUMP_PREFIX_LENGTH  strlen("XXXX    ")
+#define AJP_MSG_DUMP_LINE_LENGTH    ((AJP_MSG_DUMP_BYTES_PER_LINE * \
+                                    strlen("XX .")) + \
+                                    AJP_MSG_DUMP_PREFIX_LENGTH + \
+                                    strlen(" - ") + 1)
 
 static char *hex_table = "0123456789ABCDEF";
 
@@ -70,12 +72,13 @@ apr_status_t ajp_msg_dump(apr_pool_t *pool, ajp_msg_t *msg, char *err,
             return APR_ENOMEM;
         }
         apr_snprintf(current, rl, "%.4lx    ", (unsigned long)i);
+        current += AJP_MSG_DUMP_PREFIX_LENGTH;
         line_len = len - i;
         if (line_len > AJP_MSG_DUMP_BYTES_PER_LINE) {
             line_len = AJP_MSG_DUMP_BYTES_PER_LINE;
         }
         for (j = 0; j < line_len; j++) {
-             x = msg->buf[i + j];
+            x = msg->buf[i + j];
 
             *current++ = hex_table[x >> 4];
             *current++ = hex_table[x & 0x0f];
@@ -127,9 +130,11 @@ apr_status_t ajp_msg_log(request_rec *r, ajp_msg_t *msg, char *err)
         if (rc == APR_SUCCESS) {
             while ((next = ap_strchr(buf, '\n'))) {
                 *next = '\0';
+                /* Intentional no APLOGNO */
                 ap_log_rerror(APLOG_MARK, level, 0, r, "%s", buf);
                 buf = next + 1;
             }
+            /* Intentional no APLOGNO */
             ap_log_rerror(APLOG_MARK, level, 0, r, "%s", buf);
         }
     }
@@ -238,7 +243,7 @@ apr_status_t ajp_msg_end(ajp_msg_t *msg)
 
 static APR_INLINE int ajp_log_overflow(ajp_msg_t *msg, const char *context)
 {
-    ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,
+    ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, APLOGNO(03229)
                  "%s(): BufferOverflowException %" APR_SIZE_T_FMT
                  " %" APR_SIZE_T_FMT,
                  context, msg->pos, msg->len);

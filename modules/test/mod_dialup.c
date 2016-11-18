@@ -85,10 +85,10 @@ dialup_send_pulse(dialup_baton_t *db)
 
         apr_brigade_cleanup(db->tmpbb);
 
-        if (status != OK) {
+        if (status != APR_SUCCESS) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, status, db->r, APLOGNO(01867)
                           "dialup: pulse: ap_pass_brigade failed:");
-            return status;
+            return AP_FILTER_ERROR;
         }
     }
 
@@ -105,6 +105,7 @@ dialup_callback(void *baton)
 {
     int status;
     dialup_baton_t *db = (dialup_baton_t *)baton;
+    conn_rec *c = db->r->connection;
 
     apr_thread_mutex_lock(db->r->invoke_mtx);
 
@@ -120,13 +121,15 @@ dialup_callback(void *baton)
         return;
     }
     else {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, status, db->r, APLOGNO(01868)
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, db->r, APLOGNO(01868)
                       "dialup: pulse returned: %d", status);
         db->r->status = HTTP_OK;
         ap_die(status, db->r);
     }
 
     apr_thread_mutex_unlock(db->r->invoke_mtx);
+
+    ap_mpm_resume_suspended(c);
 }
 
 static int
@@ -139,12 +142,19 @@ dialup_handler(request_rec *r)
     apr_file_t *fd;
     dialup_baton_t *db;
     apr_bucket *e;
-
+    int mpm_can_suspend = 0;
 
     /* See core.c, default handler for all of the cases we just decline. */
     if (r->method_number != M_GET ||
         r->finfo.filetype == APR_NOFILE ||
         r->finfo.filetype == APR_DIR) {
+        return DECLINED;
+    }
+
+    rv = ap_mpm_query(AP_MPMQ_CAN_SUSPEND, &mpm_can_suspend);
+    if (!mpm_can_suspend) {
+        ap_log_rerror (APLOG_MARK, APLOG_NOTICE, rv, r, APLOGNO(02637)
+                "dialup: MPM doesn't support suspending");
         return DECLINED;
     }
 

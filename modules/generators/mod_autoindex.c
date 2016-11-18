@@ -191,7 +191,7 @@ static void emit_preamble(request_rec *r, int xhtml, const char *title)
     if (d->head_insert != NULL) {
         ap_rputs(d->head_insert, r);
     }
-    ap_rvputs(r, " </head>\n <body>\n", NULL);
+    ap_rputs(" </head>\n <body>\n", r);
 }
 
 static void push_item(apr_array_header_t *arr, char *type, const char *to,
@@ -207,7 +207,7 @@ static void push_item(apr_array_header_t *arr, char *type, const char *to,
     }
 
     p->type = type;
-    p->data = data ? apr_pstrdup(arr->pool, data) : NULL;
+    p->data = apr_pstrdup(arr->pool, data);
     p->apply_path = apr_pstrcat(arr->pool, path, "*", NULL);
 
     if ((type == BY_PATH) && (!ap_is_matchexp(to))) {
@@ -694,7 +694,7 @@ static void *merge_autoindex_configs(apr_pool_t *p, void *basev, void *addv)
              * There are local nonincremental settings, which clear
              * all inheritance from above.  They *are* the new base settings.
              */
-            new->opts = add->opts;;
+            new->opts = add->opts;
         }
         /*
          * We're guaranteed that there'll be no overlap between
@@ -1068,7 +1068,7 @@ static void emit_head(request_rec *r, char *header_fname, int suppress_amble,
                     emit_H1 = 1;
                 }
             }
-            else if (!strncasecmp("text/", rr->content_type, 5)) {
+            else if (!ap_cstr_casecmpn("text/", rr->content_type, 5)) {
                 /*
                  * If we can open the file, prefix it with the preamble
                  * regardless; since we'll be sending a <pre> block around
@@ -1163,7 +1163,7 @@ static void emit_tail(request_rec *r, char *readme_fname, int suppress_amble)
                     suppress_post = suppress_amble;
                 }
             }
-            else if (!strncasecmp("text/", rr->content_type, 5)) {
+            else if (!ap_cstr_casecmpn("text/", rr->content_type, 5)) {
                 /*
                  * If we can open the file, suppress the signature.
                  */
@@ -1336,7 +1336,7 @@ static struct ent *make_autoindex_entry(const apr_finfo_t *dirent,
         return (NULL);
     }
 
-    if((autoindex_opts & SHOW_FORBIDDEN)
+    if ((autoindex_opts & SHOW_FORBIDDEN)
         && (rr->status == HTTP_UNAUTHORIZED || rr->status == HTTP_FORBIDDEN)) {
         show_forbidden = 1;
     }
@@ -1416,7 +1416,7 @@ static char *terminate_description(autoindex_config_rec *d, char *desc,
                                    apr_int32_t autoindex_opts, int desc_width)
 {
     int maxsize = desc_width;
-    register int x;
+    int x;
 
     /*
      * If there's no DescriptionWidth in effect, default to the old
@@ -1752,10 +1752,10 @@ static void output_directories(struct ent **ar, int n,
             }
             if (!(autoindex_opts & SUPPRESS_LAST_MOD)) {
                 if (ar[x]->lm != -1) {
-                    char time_str[MAX_STRING_LEN];
+                    char time_str[32];
                     apr_time_exp_t ts;
                     apr_time_exp_lt(&ts, ar[x]->lm);
-                    apr_strftime(time_str, &rv, MAX_STRING_LEN,
+                    apr_strftime(time_str, &rv, sizeof(time_str),
                                  "%Y-%m-%d %H:%M  ",
                                  &ts);
                     ap_rvputs(r, "</td><td", (d->style_sheet != NULL) ? " class=\"indexcollastmod\">" : " align=\"right\">",time_str, NULL);
@@ -1782,7 +1782,7 @@ static void output_directories(struct ent **ar, int n,
                     }
                 }
                 else {
-                    ap_rputs("</td><td>&nbsp;", r);
+                    ap_rvputs(r, "</td><td", (d->style_sheet != NULL) ? " class=\"indexcoldesc\">" : ">", "&nbsp;", NULL);
                 }
             }
             ap_rputs("</td></tr>\n", r);
@@ -1840,10 +1840,10 @@ static void output_directories(struct ent **ar, int n,
             ap_rputs(" ", r);
             if (!(autoindex_opts & SUPPRESS_LAST_MOD)) {
                 if (ar[x]->lm != -1) {
-                    char time_str[MAX_STRING_LEN];
+                    char time_str[32];
                     apr_time_exp_t ts;
                     apr_time_exp_lt(&ts, ar[x]->lm);
-                    apr_strftime(time_str, &rv, MAX_STRING_LEN,
+                    apr_strftime(time_str, &rv, sizeof(time_str),
                                 "%Y-%m-%d %H:%M  ", &ts);
                     ap_rputs(time_str, r);
                 }
@@ -1981,7 +1981,7 @@ static int dsortf(struct ent **e1, struct ent **e2)
         }
     }
 
-    /* The names may be identical in respects other other than
+    /* The names may be identical in respects other than
      * filename case when strnatcmp is used above, so fall back
      * to strcmp on conflicts so that fn1.01.zzz and fn1.1.zzz
      * are also sorted in a deterministic order.
@@ -2274,7 +2274,10 @@ static int handle_autoindex(request_rec *r)
     autoindex_config_rec *d;
     int allow_opts;
 
-    if(strcmp(r->handler,DIR_MAGIC_TYPE)) {
+    if (strcmp(r->handler,DIR_MAGIC_TYPE) && !AP_IS_DEFAULT_HANDLER_NAME(r->handler)) {
+        return DECLINED;
+    }
+    if (r->finfo.filetype != APR_DIR) {
         return DECLINED;
     }
 

@@ -95,20 +95,26 @@ CPPOPT_DEPENDS	= $(CCOPT_DEPENDS)
 # Generic compiler rules
 #
 
-ifneq ($(MAKECMDGOALS),clean)
+ifneq "$(MAKECMDGOALS)" "clean"
+ifneq "$(findstring clobber_,$(MAKECMDGOALS))" "clobber_"
 $(APBUILD)/NWGNUversion.inc: $(APBUILD)/nw_ver.awk $(SRC)/include/ap_release.h
-#	@echo Generating $@
 	@echo $(DL)GEN  $@$(DL)
-	$(AWK) -f $^ > $@
+	$(AWK) -f $^ $(SRC)/.svn/all-wcprops > $@
 
 -include $(APBUILD)/NWGNUversion.inc
 
 ifneq "$(strip $(VERSION_STR))" ""
 VERSION_INC = $(APBUILD)/NWGNUversion.inc
 else
-VERSION		= 2,3,0
-VERSION_STR	= 2.3.0
-VERSION_MAJMIN	= 23
+VERSION		= 2,5,0
+VERSION_STR	= 2.5.0
+VERSION_MAJMIN	= 25
+endif
+endif
+endif
+ifeq "$(USE_SVNREV)" "1"
+ifneq "$(strip $(SVN_REVISION))" ""
+CFLAGS	+= -DAP_SERVER_ADD_STRING=\"$(SVN_REVISION)\"
 endif
 endif
 
@@ -215,6 +221,7 @@ $(OBJDIR)/$(NLM_NAME)_link.opt : $($(NLM_NAME)_LINKOPT_DEPENDS)
 	$(call DEL,$@)
 	$(call DEL,$(@:.opt=.def))
 	@echo $(DL)GEN  $@$(DL)
+	@echo $(DL)-nlmversion=$(NLM_VERSION) $(DL)>> $@
 	@echo $(DL)-warnings off$(DL)>> $@
 	@echo $(DL)-zerobss$(DL)>> $@
 	@echo $(DL)-o $(TARGET_nlm)$(DL)>> $@
@@ -278,7 +285,7 @@ endif
 	@echo $(DL)threadname "$(NLM_THREAD_NAME)"$(DL)>> $(@:.opt=.def)
 	@echo $(DL)screenname "$(NLM_SCREEN_NAME)"$(DL)>> $(@:.opt=.def)
 	@echo $(DL)stacksize $(subst K,000,$(subst k,K,$(strip $(NLM_STACK_SIZE))))$(DL)>> $(@:.opt=.def)
-	@echo $(DL)version $(NLM_VERSION) $(DL)>> $(@:.opt=.def)
+#	@echo $(DL)version $(NLM_VERSION) $(DL)>> $(@:.opt=.def)
 	@echo $(DL)start $(NLM_ENTRY_SYM)$(DL)>> $(@:.opt=.def)
 	@echo $(DL)exit $(NLM_EXIT_SYM)$(DL)>> $(@:.opt=.def)
 ifneq "$(NLM_CHECK_SYM)" ""

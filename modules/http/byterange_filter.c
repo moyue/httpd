@@ -82,8 +82,6 @@ static int ap_set_byterange(request_rec *r, apr_off_t clength,
                             int *overlaps, int *reversals)
 {
     const char *range;
-    const char *if_range;
-    const char *match;
     const char *ct;
     char *cur;
     apr_array_header_t *merged;
@@ -102,22 +100,8 @@ static int ap_set_byterange(request_rec *r, apr_off_t clength,
         return 0;
     }
 
-    /*
-     * Check for Range request-header (HTTP/1.1) or Request-Range for
-     * backwards-compatibility with second-draft Luotonen/Franks
-     * byte-ranges (e.g. Netscape Navigator 2-3).
-     *
-     * We support this form, with Request-Range, and (farther down) we
-     * send multipart/x-byteranges instead of multipart/byteranges for
-     * Request-Range based requests to work around a bug in Netscape
-     * Navigator 2-3 and MSIE 3.
-     */
-
-    if (!(range = apr_table_get(r->headers_in, "Range"))) {
-        range = apr_table_get(r->headers_in, "Request-Range");
-    }
-
-    if (!range || strncasecmp(range, "bytes=", 6) || r->status != HTTP_OK) {
+    range = apr_table_get(r->headers_in, "Range");
+    if (!range || ap_cstr_casecmpn(range, "bytes=", 6) || r->status != HTTP_OK) {
         return 0;
     }
 
@@ -128,27 +112,15 @@ static int ap_set_byterange(request_rec *r, apr_off_t clength,
 
     /* is content already a multiple range? */
     if ((ct = apr_table_get(r->headers_out, "Content-Type"))
-        && (!strncasecmp(ct, "multipart/byteranges", 20)
-            || !strncasecmp(ct, "multipart/x-byteranges", 22))) {
+        && ap_cstr_casecmpn(ct, "multipart/byteranges", 20) == 0) {
             return 0;
-        }
+    }
 
     /*
      * Check the If-Range header for Etag or Date.
-     * Note that this check will return false (as required) if either
-     * of the two etags are weak.
      */
-    if ((if_range = apr_table_get(r->headers_in, "If-Range"))) {
-        if (if_range[0] == '"') {
-            if (!(match = apr_table_get(r->headers_out, "Etag"))
-                || (strcmp(if_range, match) != 0)) {
-                return 0;
-            }
-        }
-        else if (!(match = apr_table_get(r->headers_out, "Last-Modified"))
-                 || (strcmp(if_range, match) != 0)) {
-            return 0;
-        }
+    if (AP_CONDITION_NOMATCH == ap_condition_if_range(r, r->headers_out)) {
+        return 0;
     }
 
     range += 6;
@@ -312,21 +284,6 @@ static int ap_set_byterange(request_rec *r, apr_off_t clength,
     return num_ranges;
 }
 
-/*
- * Here we try to be compatible with clients that want multipart/x-byteranges
- * instead of multipart/byteranges (also see above), as per HTTP/1.1. We
- * look for the Request-Range header (e.g. Netscape 2 and 3) as an indication
- * that the browser supports an older protocol. We also check User-Agent
- * for Microsoft Internet Explorer 3, which needs this as well.
- */
-static int use_range_x(request_rec *r)
-{
-    const char *ua;
-    return (apr_table_get(r->headers_in, "Request-Range")
-            || ((ua = apr_table_get(r->headers_in, "User-Agent"))
-                && ap_strstr_c(ua, "MSIE 3")));
-}
-
 #define BYTERANGE_FMT "%" APR_OFF_T_FMT "-%" APR_OFF_T_FMT "/%" APR_OFF_T_FMT
 
 static apr_status_t copy_brigade_range(apr_bucket_brigade *bb,
@@ -393,8 +350,7 @@ static apr_status_t copy_brigade_range(apr_bucket_brigade *bb,
                     return rv;
                 }
                 out_first = APR_BUCKET_NEXT(copy);
-                APR_BUCKET_REMOVE(copy);
-                apr_bucket_destroy(copy);
+                apr_bucket_delete(copy);
             }
             else {
                 out_first = copy;
@@ -413,8 +369,7 @@ static apr_status_t copy_brigade_range(apr_bucket_brigade *bb,
                 }
                 copy = APR_BUCKET_NEXT(copy);
                 if (copy != APR_BRIGADE_SENTINEL(bbout)) {
-                    APR_BUCKET_REMOVE(copy);
-                    apr_bucket_destroy(copy);
+                    apr_bucket_delete(copy);
                 }
             }
             break;
@@ -519,9 +474,8 @@ AP_CORE_DECLARE_NONSTD(apr_status_t) ap_byterange_filter(ap_filter_t *f,
         /* Is ap_make_content_type required here? */
         const char *orig_ct = ap_make_content_type(r, r->content_type);
 
-        ap_set_content_type(r, apr_pstrcat(r->pool, "multipart",
-                                           use_range_x(r) ? "/x-" : "/",
-                                           "byteranges; boundary=",
+        ap_set_content_type(r, apr_pstrcat(r->pool,
+                                           "multipart/byteranges; boundary=",
                                            ap_multipart_boundary, NULL));
 
         if (orig_ct) {

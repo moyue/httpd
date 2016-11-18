@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE language SYSTEM "../lang.dtd">
-<!-- English revision: 106753 -->
+<!-- English revision: 1659855 -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -25,14 +25,12 @@
     <source-ext>.xml.fr</source-ext>
     <target-ext>.html.fr</target-ext>
 
-<!-- No sitemap -> no CHM
     <chm>
         <lang>0x40c French (France)</lang>
         <toc-font>,8,0</toc-font>
         <charset>windows-1252</charset>
         <settings>French (France)</settings>
     </chm>
--->
 
 <!-- currently no deployment of non-english man pages
     <man>
@@ -73,6 +71,10 @@
         <message id="uppercase">ABCDEFGHIJKLMNOPQRSTUVWXYZ</message>
         <message id="name-section">NOM</message>
         <message id="hyphenation">C&#233;sure</message>
+        <message id="foundabug">Traitement des bugs</message>
+        <message id="httpdchangelog">Journal des modifications de httpd</message>
+        <message id="httpdknownissues">Probl&#232;mes connus</message>
+        <message id="httpdreportabug">Signaler un bug</message>
 
         <!-- Used in description box for directives -->
         <message id="syntax">Syntaxe</message>
@@ -102,7 +104,10 @@
              if present, the space between <directive name> and 'Directive'
              in directivesynopsis headings will be replaced by the given string.
              (see de.xml for an example) -->
-        <message id="directive">Directive</message>
+        <!-- the optional attribute before-name takes a string.
+             if "yes", the 'Directive' word is place before the name instead of
+             being placed behind. See fr.xml for an example. -->
+        <message id="directive" before-name="yes">Directive</message>
         <message id="nodirectives">Ce module ne fournit aucune directive.</message>
 
         <!-- Used in summaries -->
@@ -119,6 +124,7 @@
         <message id="search">Recherche Google</message> <!-- search button -->
         <message id="index">Index</message> <!-- deprecated -->
         <message id="home">Accueil</message> <!-- deprecated -->
+        <message id="comments">Commentaires</message>
 
         <!-- breadcrumb links -->
         <message id="apache">Apache</message>
@@ -144,5 +150,14 @@
         <message id="nottranslated">La documentation de cette directive
 	n'a pas encore &eacute;t&eacute; traduite. Veuillez vous reporter &agrave; la version
 	en langue anglaise.</message>
+
+        <!-- retirement -->
+        <message id="retired.headline">A savoir</message>
+        <message id="retired.description">
+            <p>Ce document concerne la version <strong>2.0</strong> du serveur HTTP Apache et celle-ci <strong>n'est plus maintenue</strong>. Si vous utilisez cette version, il est fortement recommand&eacute; de mettre &agrave; jour votre serveur vers la version actuelle (<strong>2.4</strong>), et de consulter la documentation correspondante ici :</p>
+        </message>
+        <message id="retired.current">Version actuelle de la documentation du serveur HTTP Apache</message>
+        <message id="retired.document">Pour consulter la version actuelle de ce document, vous pouvez suivre <link>ce lien</link>.</message>
+
     </messages>
 </language>

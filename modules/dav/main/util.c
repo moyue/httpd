@@ -77,6 +77,30 @@ DAV_DECLARE(dav_error*) dav_push_error(apr_pool_t *p, int status,
     return err;
 }
 
+DAV_DECLARE(dav_error*) dav_join_error(dav_error *dest, dav_error *src)
+{
+    dav_error *curr = dest;
+
+    /* src error doesn't exist so nothing to join just return dest */
+    if (src == NULL) {
+        return dest;
+    }
+
+    /* dest error doesn't exist so nothing to join just return src */
+    if (curr == NULL) {
+        return src;
+    }
+
+    /* find last error in dest stack */
+    while (curr->prev != NULL) {
+        curr = curr->prev;
+    }
+
+    /* add the src error onto end of dest stack and return it */
+    curr->prev = src;
+    return dest;
+}
+
 DAV_DECLARE(void) dav_check_bufsize(apr_pool_t * p, dav_buffer *pbuf,
                                     apr_size_t extra_needed)
 {
@@ -216,7 +240,7 @@ DAV_DECLARE(dav_lookup_result) dav_lookup_uri(const char *uri,
            request. the port must match our port.
         */
         port = r->connection->local_addr->port;
-        if (strcasecmp(comp.scheme, scheme) != 0
+        if (ap_cstr_casecmp(comp.scheme, scheme) != 0
 #ifdef APACHE_PORT_HANDLING_IS_BUSTED
             || comp.port != port
 #endif
@@ -372,8 +396,10 @@ DAV_DECLARE(const char *) dav_xml_get_cdata(const apr_xml_elem *elem, apr_pool_t
 
     if (strip_white) {
         /* trim leading whitespace */
-        while (apr_isspace(*cdata))     /* assume: return false for '\0' */
+        while (apr_isspace(*cdata)) {     /* assume: return false for '\0' */
             ++cdata;
+            --len;
+        }
 
         /* trim trailing whitespace */
         while (len-- > 0 && apr_isspace(cdata[len]))
@@ -402,7 +428,7 @@ DAV_DECLARE(void) dav_xmlns_add(dav_xmlns_info *xi,
     apr_hash_set(xi->prefix_uri, prefix, APR_HASH_KEY_STRING, uri);
 
     /* note: this may overwrite an existing URI->prefix mapping, but it
-       doesn't matter -- any prefix is usuable to specify the URI. */
+       doesn't matter -- any prefix is usable to specify the URI. */
     apr_hash_set(xi->uri_prefix, uri, APR_HASH_KEY_STRING, prefix);
 }
 
@@ -561,7 +587,7 @@ static dav_error * dav_add_if_state(apr_pool_t *p, dav_if_header *ih,
 }
 
 /* fetch_next_token returns the substring from str+1
- * to the next occurence of char term, or \0, whichever
+ * to the next occurrence of char term, or \0, whichever
  * occurs first.  Leading whitespace is ignored.
  */
 static char *dav_fetch_next_token(char **str, char term)
@@ -635,9 +661,19 @@ static dav_error * dav_process_if_header(request_rec *r, dav_if_header **p_ih)
 
             /* clean up the URI a bit */
             ap_getparents(parsed_uri.path);
+
+            /* the resources we will compare to have unencoded paths */
+            if (ap_unescape_url(parsed_uri.path) != OK) {
+                return dav_new_error(r->pool, HTTP_BAD_REQUEST,
+                                     DAV_ERR_IF_TAGGED, rv,
+                                     "Invalid percent encoded URI in "
+                                     "tagged If-header.");
+            }
+
             uri_len = strlen(parsed_uri.path);
-            if (uri_len > 1 && parsed_uri.path[uri_len - 1] == '/')
+            if (uri_len > 1 && parsed_uri.path[uri_len - 1] == '/') {
                 parsed_uri.path[--uri_len] = '\0';
+            }
 
             uri = parsed_uri.path;
             list_type = tagged;
@@ -920,13 +956,16 @@ static dav_error * dav_validate_resource_state(apr_pool_t *p,
         /*
         ** For methods other than LOCK:
         **
-        ** If we have no locks, then <seen_locktoken> can be set to true --
+        ** If we have no locks or if the resource is not being modified
+        ** (per RFC 4918 the lock token is not required on resources
+        ** we are not changing), then <seen_locktoken> can be set to true --
         ** pretending that we've already met the requirement of seeing one
         ** of the resource's locks in the If: header.
         **
         ** Otherwise, it must be cleared and we'll look for one.
         */
-        seen_locktoken = (lock_list == NULL);
+        seen_locktoken = (lock_list == NULL
+                          || flags & DAV_VALIDATE_NO_MODIFY);
     }
 
     /*
@@ -1556,8 +1595,10 @@ DAV_DECLARE(dav_error *) dav_validate_request(request_rec *r,
         }
     }
 
-    /* (1) Validate the specified resource, at the specified depth */
-    if (resource->exists && depth > 0) {
+    /* (1) Validate the specified resource, at the specified depth.
+     * Avoid the walk there is no if_header and we aren't planning
+     * to modify this resource. */
+    if (resource->exists && depth > 0 && !(!if_header && flags & DAV_VALIDATE_NO_MODIFY)) {
         dav_walker_ctx ctx = { { 0 } };
         dav_response *multi_status;
 
@@ -1578,7 +1619,7 @@ DAV_DECLARE(dav_error *) dav_validate_request(request_rec *r,
 
         err = (*repos_hooks->walk)(&ctx.w, DAV_INFINITY, &multi_status);
         if (err == NULL) {
-            *response = multi_status;;
+            *response = multi_status;
         }
         /* else: implies a 5xx status code occurred. */
     }
@@ -1714,7 +1755,7 @@ DAV_DECLARE(dav_error *) dav_get_locktoken_list(request_rec *r,
     }
 
     while (if_header != NULL) {
-        if_state = if_header->state;        /* Begining of the if_state linked list */
+        if_state = if_header->state;        /* Beginning of the if_state linked list */
         while (if_state != NULL)        {
             if (if_state->condition == DAV_IF_COND_NORMAL
                 && if_state->type == dav_if_opaquelock) {
@@ -1782,10 +1823,11 @@ DAV_DECLARE(void) dav_add_vary_header(request_rec *in_req,
      * so only do this check if there is a versioning provider */
     if (vsn_hooks != NULL) {
         const char *target = apr_table_get(in_req->headers_in, DAV_LABEL_HDR);
-        const char *vary = apr_table_get(out_req->headers_out, "Vary");
 
         /* If Target-Selector specified, add it to the Vary header */
         if (target != NULL) {
+            const char *vary = apr_table_get(out_req->headers_out, "Vary");
+
             if (vary == NULL)
                 vary = DAV_LABEL_HDR;
             else

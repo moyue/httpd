@@ -59,7 +59,9 @@
       </example>
     <p>Alternatively you may prefer to default everything to binary:</p>
       <example>
-<pre>ForceType application/octet-stream</pre>
+        <highlight language="config">
+ForceType application/octet-stream
+        </highlight>
       </example>
     </section> <!-- /mimetypes -->
 
@@ -100,7 +102,7 @@
     <section id="ftppass"><title>How can I hide the FTP cleartext password
     in my browser's URL line?</title>
       <p>To log in to an FTP server by username and password, Apache uses
-      different strategies. In absense of a user name and password in the URL
+      different strategies. In absence of a user name and password in the URL
       altogether, Apache sends an anonymous login to the FTP server,
       <em>i.e.</em>,</p>
 
@@ -139,7 +141,7 @@
         a base64-encoded cleartext string, and between the Apache proxy and the
         FTP server as plaintext. You should therefore think twice before
         accessing your FTP server via HTTP (or before accessing your personal
-        files via FTP at all!) When using unsecure channels, an eavesdropper
+        files via FTP at all!) When using insecure channels, an eavesdropper
         might intercept your password on its way.</p>
       </note>
     </section> <!-- /ftppass -->
@@ -162,7 +164,7 @@
 <default>on</default>
 <contextlist><context>server config</context><context>virtual host</context>
   <context>directory</context></contextlist>
-<compatibility>Available in Apache xxx and later</compatibility>
+<compatibility>Available in Apache 2.3.3 and later</compatibility>
 
 <usage>
   <p>The <directive>ProxyFtpListOnWildcard</directive> directive
@@ -181,7 +183,7 @@
 <default>on</default>
 <contextlist><context>server config</context><context>virtual host</context>
   <context>directory</context></contextlist>
-<compatibility>Available in Apache xxx and later</compatibility>
+<compatibility>Available in Apache 2.3.3 and later</compatibility>
 
 <usage>
   <p>The <directive>ProxyFtpEscapeWildcards</directive> directive
@@ -203,7 +205,7 @@
 <default>ProxyFtpDirCharset ISO-8859-1</default>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context></contextlist>
-<compatibility>Available in Apache 2.2.7 and later. Moved from <module>mod_proxy</module> in Apache 2.3.5.</compatibility>
+<compatibility>Moved from <module>mod_proxy</module> in Apache 2.3.5.</compatibility>
 
 <usage>
     <p>The <directive>ProxyFtpDirCharset</directive> directive defines the

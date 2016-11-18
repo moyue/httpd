@@ -173,7 +173,11 @@
 
 <xsl:template match="directivesynopsis/name">
 <xsl:text>\subsection*{</xsl:text>
-<xsl:call-template name="simpledirname"/>
+
+<xsl:choose>
+<xsl:when test="$message [@id='directive']/@before-name = 'yes'">
+  <xsl:value-of select="$message[@id='directive']" />
+
   <xsl:choose>
   <xsl:when test="$message[@id='directive']/@replace-space-with">
     <xsl:value-of select="$message[@id='directive']/@replace-space-with"/>
@@ -183,7 +187,25 @@
   </xsl:otherwise>
   </xsl:choose>
 
-<xsl:value-of select="$message[@id='directive']" />
+  <xsl:call-template name="simpledirname"/>
+</xsl:when>
+
+<xsl:otherwise>
+  <xsl:call-template name="simpledirname"/>
+
+  <xsl:choose>
+  <xsl:when test="$message[@id='directive']/@replace-space-with">
+    <xsl:value-of select="$message[@id='directive']/@replace-space-with"/>
+  </xsl:when>
+  <xsl:otherwise>
+    <xsl:text> </xsl:text>
+  </xsl:otherwise>
+  </xsl:choose>
+
+  <xsl:value-of select="$message[@id='directive']" />
+</xsl:otherwise>
+</xsl:choose>
+
 <xsl:text>}\label{</xsl:text>
 <xsl:value-of select="concat('/mod/', //modulesynopsis/name, ':', translate(., $uppercase, $lowercase))"/>
 <xsl:text>}\hypertarget{</xsl:text>
@@ -208,7 +230,7 @@
 
 <xsl:value-of select="$message[@id='syntax']" />
 <xsl:text>: &amp; {\ttfamily </xsl:text>
-<xsl:apply-templates select="syntax" />
+<xsl:apply-templates select="syntax" mode="tabular" />
 <xsl:text>}\\
 </xsl:text>
 
@@ -303,6 +325,9 @@
 </xsl:when>
 <xsl:when test="normalize-space(.) = '.htaccess'">
     <xsl:value-of select="$message[@id='htaccess']" />
+</xsl:when>
+<xsl:when test="normalize-space(.) = 'proxy section'">
+    <xsl:value-of select="$message[@id='proxy']" />
 </xsl:when>
 <xsl:otherwise> <!-- error -->
     <xsl:message terminate="yes">

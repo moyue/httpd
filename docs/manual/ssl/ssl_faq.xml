@@ -172,11 +172,11 @@ relative hyperlinks?</a></li>
     fully-qualified hyperlinks (because you have to change the URL
     scheme).  Using <module>mod_rewrite</module> however, you can
     manipulate relative hyperlinks, to achieve the same effect.</p>
-    <example>
-    RewriteEngine on<br />
-    RewriteRule   ^/(.*)_SSL$   https://%{SERVER_NAME}/$1 [R,L]<br />
-    RewriteRule   ^/(.*)_NOSSL$ http://%{SERVER_NAME}/$1  [R,L]
-    </example>
+    <highlight language="config">
+RewriteEngine on
+RewriteRule   "^/(.*)_SSL$"   "https://%{SERVER_NAME}/$1" [R,L]
+RewriteRule   "^/(.*)_NOSSL$" "http://%{SERVER_NAME}/$1"  [R,L]
+    </highlight>
 
     <p>This rewrite ruleset lets you use hyperlinks of the form
     <code>&lt;a href="document.html_SSL"&gt;</code>, to switch to HTTPS
@@ -253,10 +253,10 @@ Certificate for testing purposes?</title>
                         -keyout server.key</strong></code><br />
         These can be used as follows in your <code>httpd.conf</code>
         file:
-        <pre>
-             SSLCertificateFile    /path/to/this/server.crt
-             SSLCertificateKeyFile /path/to/this/server.key
-        </pre>
+        <highlight language="config">
+SSLCertificateFile    /path/to/this/server.crt
+SSLCertificateKeyFile /path/to/this/server.key
+        </highlight>
     </li>
     <li>It is important that you are aware that this
         <code>server.key</code> does <em>not</em> have any passphrase.
@@ -333,10 +333,10 @@ Certificate for testing purposes?</title>
     <li>You should now have two files: <code>server.key</code> and
     <code>server.crt</code>. These can be used as follows in your
     <code>httpd.conf</code> file:
-       <pre>
-       SSLCertificateFile    /path/to/this/server.crt
-       SSLCertificateKeyFile /path/to/this/server.key
-       </pre>
+       <highlight language="config">
+SSLCertificateFile    /path/to/this/server.crt
+SSLCertificateKeyFile /path/to/this/server.key
+       </highlight>
        The <code>server.csr</code> file is no longer needed.
     </li>
 
@@ -347,7 +347,7 @@ Certificate for testing purposes?</title>
     <p>The short answer is to use the <code>CA.sh</code> or <code>CA.pl</code>
     script provided by OpenSSL. Unless you have a good reason not to,
     you should use these for preference. If you cannot, you can create a
-    self-signed Certificate as follows:</p>
+    self-signed certificate as follows:</p>
 
     <ol>
     <li>Create a RSA private key for your server
@@ -355,10 +355,11 @@ Certificate for testing purposes?</title>
        <br />
        <code><strong>$ openssl genrsa -des3 -out server.key 2048</strong></code><br />
        <br />
-       Please backup this <code>host.key</code> file and the
+       Please backup this <code>server.key</code> file and the
        pass-phrase you entered in a secure location.
        You can see the details of this RSA private key by using the
        command:<br />
+       <br />
        <code><strong>$ openssl rsa -noout -text -in server.key</strong></code><br />
        <br />
        If necessary, you can also create a decrypted PEM version (not
@@ -371,7 +372,7 @@ Certificate for testing purposes?</title>
        with the RSA key you just created (output will be PEM formatted):<br />
        <br />
        <code><strong>$ openssl req -new -x509 -nodes -sha1 -days 365
-                       -key server.key -out server.crt</strong></code><br />
+                       -key server.key -out server.crt -extensions usr_cert</strong></code><br />
        <br />
        This signs the server CSR and results in a <code>server.crt</code> file.<br />
        You can see the details of this Certificate using:<br />
@@ -384,8 +385,7 @@ Certificate for testing purposes?</title>
 
 <section id="passphrase"><title>How can I change the pass-phrase on my private key file?</title>
 <p>You simply have to read it with the old pass-phrase and write it again,
-    specifying the new pass-phrase. You can accomplish this with the following
-    commands:</p>
+    specifying the new pass-phrase. You can accomplish this with the following commands:</p>
 
 
     <p><code><strong>$ openssl rsa -des3 -in server.key -out server.key.new</strong></code><br />
@@ -519,6 +519,8 @@ Does this mean the username/password is being sent unencrypted?</a></li>
 <li><a href="#msie">Why do I get I/O errors when connecting via
 HTTPS to an Apache+mod_ssl server with Microsoft Internet Explorer
 (MSIE)?</a></li>
+<li><a href="#srp">How do I enable TLS-SRP?</a></li>
+<li><a href="#javadh">Why do I get handshake failures with Java-based clients when using a certificate with more than 1024 bits?</a></li>
 </ul>
 
 <section id="random"><title>Why do I get lots of random SSL protocol
@@ -605,9 +607,9 @@ error when connecting to my newly installed server?</title>
     handshake is finished, but the information is needed in order to
     complete the SSL handshake phase. See the next question for how to
     circumvent this issue.</p>
-    
+
     <p>Note that if you have a wildcard SSL certificate, or a
-    certificate that has multple hostnames on it using subjectAltName
+    certificate that has multiple hostnames on it using subjectAltName
     fields, you can use SSL on name-based virtual hosts without further
     workarounds.</p>
 </section>
@@ -626,7 +628,7 @@ Virtual Hosting to identify different SSL virtual hosts?</title>
     specification added, called Server Name Indication (SNI).</p>
 
     <p>Note that if you have a wildcard SSL certificate, or a
-    certificate that has multple hostnames on it using subjectAltName
+    certificate that has multiple hostnames on it using subjectAltName
     fields, you can use SSL on name-based virtual hosts without further
     workarounds.</p>
 
@@ -650,9 +652,9 @@ Virtual Hosting to identify different SSL virtual hosts?</title>
     you must make sure to put the non-SSL port number on the NameVirtualHost
     directive, e.g.</p>
 
-    <example>
+    <highlight language="config">
       NameVirtualHost 192.168.1.1:80
-    </example>
+    </highlight>
 
     <p>Other workaround solutions include: </p>
 
@@ -668,7 +670,7 @@ a negotiable standard compression method.
 <p>OpenSSL 0.9.8 started to support this by default when compiled with the
 <code>zlib</code> option. If both the client and the server support compression,
 it will be used. However, most clients still try to initially connect with an
-SSLv2 Hello. As SSLv2 did not include an array of prefered compression algorithms
+SSLv2 Hello. As SSLv2 did not include an array of preferred compression algorithms
 in its handshake, compression cannot be negotiated with these clients.
 If the client disables support for SSLv2, either an SSLv3 or TLS Hello
 may be sent, depending on which SSL library is used, and compression may
@@ -702,11 +704,11 @@ Explorer (MSIE)?</title>
     keep-alive connections or send the SSL close notify messages to MSIE clients.
     This can be done by using the following directive in your SSL-aware
     virtual host section:</p>
-    <example>
-    SetEnvIf User-Agent "MSIE [2-5]" \<br />
-             nokeepalive ssl-unclean-shutdown \<br />
-             downgrade-1.0 force-response-1.0
-    </example>
+    <highlight language="config">
+SetEnvIf User-Agent "MSIE [2-5]" \
+         nokeepalive ssl-unclean-shutdown \
+         downgrade-1.0 force-response-1.0
+    </highlight>
     <p>Further, some MSIE versions have problems with particular ciphers.
     Unfortunately, it is not possible to implement a MSIE-specific
     workaround for this, because the ciphers are needed as early as the
@@ -717,6 +719,60 @@ Explorer (MSIE)?</title>
     this, make sure your clients really have problems. If not, do not
     make these changes - they will affect <em>all</em> your clients, MSIE
     or otherwise.</p>
+</section>
+
+<section id="srp"><title>How do I enable TLS-SRP?</title>
+    <p>TLS-SRP (Secure Remote Password key exchange for TLS, specified in RFC 5054)
+    can supplement or replace certificates in authenticating an SSL connection.
+    To use TLS-SRP, set the
+    <directive module="mod_ssl">SSLSRPVerifierFile</directive> directive to
+    point to an OpenSSL SRP verifier file. To create the verifier file, use the
+    <code>openssl</code> tool:</p>
+    <example>
+    openssl srp -srpvfile passwd.srpv -add username
+    </example>
+    <p>After creating this file, specify it in the SSL server configuration:</p>
+    <example>
+    SSLSRPVerifierFile /path/to/passwd.srpv
+    </example>
+    <p>To force clients to use non-certificate TLS-SRP cipher suites, use the
+    following directive:</p>
+    <example>
+    SSLCipherSuite "!DSS:!aRSA:SRP"
+    </example>
+</section>
+
+<section id="javadh"><title>Why do I get handshake failures with Java-based clients when using a certificate with more than 1024 bits?</title>
+    <p>Beginning with version 2.5.0-dev as of 2013-09-29,
+    <module>mod_ssl</module> will use DH parameters which include primes
+    with lengths of more than 1024 bits. Java 7 and earlier limit their
+    support for DH prime sizes to a maximum of 1024 bits, however.</p>
+
+    <p>If your Java-based client aborts with exceptions such as
+    <code>java.lang.RuntimeException: Could not generate DH keypair</code> and
+    <code>java.security.InvalidAlgorithmParameterException: Prime size must be
+    multiple of 64, and can only range from 512 to 1024 (inclusive)</code>,
+    and httpd logs <code>tlsv1 alert internal error (SSL alert number 80)</code>
+    (at <directive module="core">LogLevel</directive> <code>info</code>
+    or higher), you can either rearrange mod_ssl's cipher list with
+    <directive module="mod_ssl">SSLCipherSuite</directive>
+    (possibly in conjunction with <directive module="mod_ssl">SSLHonorCipherOrder</directive>),
+    or you can use custom DH parameters with a 1024-bit prime, which
+    will always have precedence over any of the built-in DH parameters.</p>
+
+    <p>To generate custom DH parameters, use the <code>openssl dhparam 1024</code>
+    command. Alternatively, you can use the following standard 1024-bit DH
+    parameters from <a href="http://www.ietf.org/rfc/rfc2409.txt">RFC 2409</a>,
+    section 6.2:</p>
+    <example><pre>-----BEGIN DH PARAMETERS-----
+MIGHAoGBAP//////////yQ/aoiFowjTExmKLgNwc0SkCTgiKZ8x0Agu+pjsTmyJR
+Sgh5jjQE3e+VGbPNOkMbMCsKbfJfFDdP4TVtbVHCReSFtXZiXn7G9ExC6aY37WsL
+/1y29Aa37e44a/taiZ+lrp8kEXxLH+ZJKGZR7OZTgf//////////AgEC
+-----END DH PARAMETERS-----</pre></example>
+    <p>Add the custom parameters including the "BEGIN DH PARAMETERS" and
+    "END DH PARAMETERS" lines to the end of the first certificate file
+    you have configured using the
+    <directive module="mod_ssl">SSLCertificateFile</directive> directive.</p>
 </section>
 
 </section>

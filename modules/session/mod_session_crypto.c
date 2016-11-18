@@ -407,13 +407,6 @@ static int session_crypto_init(apr_pool_t *p, apr_pool_t *plog,
     session_crypto_conf *conf = ap_get_module_config(s->module_config,
             &session_crypto_module);
 
-    /* session_crypto_init() will be called twice. Don't bother
-     * going through all of the initialization on the first call
-     * because it will just be thrown away.*/
-    if (ap_state_query(AP_SQ_MAIN_STATE) == AP_SQ_MS_CREATE_PRE_CONFIG) {
-        return OK;
-    }
-
     if (conf->library) {
 
         const apu_err_t *err = NULL;
@@ -435,7 +428,7 @@ static int session_crypto_init(apr_pool_t *p, apr_pool_t *plog,
         }
         if (APR_SUCCESS != rv && err) {
             ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, APLOGNO(01845)
-                    "%s", err->msg);
+                    "The crypto library '%s' could not be loaded: %s (%s: %d)", conf->library, err->msg, err->reason, err->rc);
             return rv;
         }
         if (APR_ENOTIMPL == rv) {
@@ -534,11 +527,41 @@ static const char *set_crypto_driver(cmd_parms * cmd, void *config, const char *
 
 static const char *set_crypto_passphrase(cmd_parms * cmd, void *config, const char *arg)
 {
+    int arglen = strlen(arg);
+    char **argv;
+    char *result;
     const char **passphrase;
     session_crypto_dir_conf *dconf = (session_crypto_dir_conf *) config;
 
     passphrase = apr_array_push(dconf->passphrases);
-    *passphrase = arg;
+
+    if ((arglen > 5) && strncmp(arg, "exec:", 5) == 0) {
+        if (apr_tokenize_to_argv(arg+5, &argv, cmd->temp_pool) != APR_SUCCESS) {
+            return apr_pstrcat(cmd->pool,
+                               "Unable to parse exec arguments from ",
+                               arg+5, NULL);
+        }
+        argv[0] = ap_server_root_relative(cmd->temp_pool, argv[0]);
+
+        if (!argv[0]) {
+            return apr_pstrcat(cmd->pool,
+                               "Invalid SessionCryptoPassphrase exec location:",
+                               arg+5, NULL);
+        }
+        result = ap_get_exec_line(cmd->pool,
+                                  (const char*)argv[0], (const char * const *)argv);
+
+        if(!result) {
+            return apr_pstrcat(cmd->pool,
+                               "Unable to get bind password from exec of ",
+                               arg+5, NULL);
+        }
+        *passphrase = result;
+    }
+    else {
+        *passphrase = arg;
+    }
+
     dconf->passphrases_set = 1;
 
     return NULL;
@@ -556,15 +579,14 @@ static const char *set_crypto_passphrase_file(cmd_parms *cmd, void *config,
     filename = ap_server_root_relative(cmd->temp_pool, filename);
     rv = ap_pcfg_openfile(&file, cmd->temp_pool, filename);
     if (rv != APR_SUCCESS) {
-        return apr_psprintf(cmd->pool, "%s: Could not open file %s: %s",
-                            cmd->cmd->name, filename,
-                            apr_strerror(rv, buffer, sizeof(buffer)));
+        return apr_psprintf(cmd->pool, "%s: Could not open file %s: %pm",
+                            cmd->cmd->name, filename, &rv);
     }
 
     while (!(ap_cfg_getline(buffer, sizeof(buffer), file))) {
         args = buffer;
         while (*(arg = ap_getword_conf(cmd->pool, &args)) != '\0') {
-            if (*arg == '#' || *arg == 0) {
+            if (*arg == '#') {
                 break;
             }
             set_crypto_passphrase(cmd, config, arg);

@@ -176,7 +176,7 @@ APREQ_DECLARE(apreq_parser_function_t)apreq_parser(const char *enctype)
     if (enctype == NULL || default_parsers_lock == 0)
         return NULL;
 
-    while(enctype[tlen] && enctype[tlen] != ';')
+    while (enctype[tlen] && enctype[tlen] != ';')
         ++tlen;
 
     f = apr_hash_get(default_parsers, enctype, tlen);
@@ -311,7 +311,7 @@ APREQ_DECLARE_HOOK(apreq_hook_apr_xml_parser)
             else {
                 ctx->status = XML_ERROR;
             }
-           return s;
+            return s;
         }
         else if (APR_BUCKET_IS_METADATA(e)) {
             continue;
@@ -330,7 +330,6 @@ APREQ_DECLARE_HOOK(apreq_hook_apr_xml_parser)
             ctx->status = XML_ERROR;
             return s;
         }
-
     }
 
     if (hook->next)
@@ -347,7 +346,7 @@ APREQ_DECLARE_HOOK(apreq_hook_find_param)
     apr_status_t s = (hook->next == NULL)
         ? APR_SUCCESS : apreq_hook_run(hook->next, param, bb);
 
-    if (is_final && s == APR_SUCCESS
+    if (is_final && s == APR_SUCCESS && ctx->param == NULL
         && strcasecmp(ctx->name, param->v.name) == 0) {
         ctx->param = param;
         ctx->prev->next = hook->next;

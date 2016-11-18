@@ -42,7 +42,7 @@ AP_DECLARE(apr_status_t) ap_register_provider(apr_pool_t *pool,
 
     if (global_providers == NULL) {
         global_providers = apr_hash_make(pool);
-        global_providers_names = apr_hash_make(pool);;
+        global_providers_names = apr_hash_make(pool);
         apr_pool_cleanup_register(pool, NULL, cleanup_global_providers,
                                   apr_pool_cleanup_null);
     }
@@ -136,7 +136,7 @@ AP_DECLARE(apr_array_header_t *) ap_list_provider_names(apr_pool_t *pool,
     ap_list_provider_names_t *entry;
     apr_hash_t *provider_group_hash, *h;
     apr_hash_index_t *hi;
-    char *val, *key;
+    char *val;
 
     if (global_providers_names == NULL) {
         return ret;
@@ -157,7 +157,7 @@ AP_DECLARE(apr_array_header_t *) ap_list_provider_names(apr_pool_t *pool,
     }
 
     for (hi = apr_hash_first(pool, h); hi; hi = apr_hash_next(hi)) {
-        apr_hash_this(hi, (void *)&key, NULL, (void *)&val);
+        apr_hash_this(hi, NULL, NULL, (void *)&val);
         entry = apr_array_push(ret);
         entry->provider_name = apr_pstrdup(pool, val);
     }

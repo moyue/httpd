@@ -26,17 +26,20 @@
 <description>shmcb based shared object cache provider.</description>
 <status>Extension</status>
 <sourcefile>mod_socache_shmcb.c</sourcefile>
-<identifier>mod_socache_shmcb_module</identifier>
+<identifier>socache_shmcb_module</identifier>
 
 <summary>
     <p><code>mod_socache_shmcb</code> is a shared object cache provider
     which provides for creation and access to a cache backed by a
     high-performance cyclic buffer inside a shared memory segment.
     </p>
-    
+
     <example>
     shmcb:/path/to/datafile(512000)
     </example>
+
+    <p>If the path is not absolute then it is assumed to be relative to
+    the <directive module="core">DefaultRuntimeDir</directive>.</p>
 
     <p>Details of other shared object cache providers can be found
     <a href="../socache.html">here</a>.

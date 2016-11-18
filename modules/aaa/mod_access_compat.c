@@ -147,7 +147,6 @@ static const char *allow_cmd(cmd_parms *cmd, void *dv, const char *from,
     allowdeny *a;
     char *where = apr_pstrdup(cmd->pool, where_c);
     char *s;
-    char msgbuf[120];
     apr_status_t rv;
 
     if (strcasecmp(from, "from"))
@@ -178,18 +177,18 @@ static const char *allow_cmd(cmd_parms *cmd, void *dv, const char *from,
             return "An IP address was expected";
         }
         else if (rv != APR_SUCCESS) {
-            apr_strerror(rv, msgbuf, sizeof msgbuf);
-            return apr_pstrdup(cmd->pool, msgbuf);
+            return apr_psprintf(cmd->pool, "%pm", &rv);
         }
         a->type = T_IP;
     }
     else if (!APR_STATUS_IS_EINVAL(rv = apr_ipsubnet_create(&a->x.ip, where,
                                                             NULL, cmd->pool))) {
-        if (rv != APR_SUCCESS) {
-            apr_strerror(rv, msgbuf, sizeof msgbuf);
-            return apr_pstrdup(cmd->pool, msgbuf);
-        }
+        if (rv != APR_SUCCESS)
+            return apr_psprintf(cmd->pool, "%pm", &rv);
         a->type = T_IP;
+    }
+    else if (ap_strchr(where, '#')) {
+        return "No comments are allowed here";
     }
     else { /* no slash, didn't look like an IP address => must be a host */
         a->type = T_HOST;
@@ -280,10 +279,8 @@ static int find_allowdeny(request_rec *r, apr_array_header_t *a, int method)
             if (!gothost) {
                 int remotehost_is_ip;
 
-                remotehost = ap_get_remote_host(r->connection,
-                                                r->per_dir_config,
-                                                REMOTE_DOUBLE_REV,
-                                                &remotehost_is_ip);
+                remotehost = ap_get_useragent_host(r, REMOTE_DOUBLE_REV,
+                                                   &remotehost_is_ip);
 
                 if ((remotehost == NULL) || remotehost_is_ip) {
                     gothost = 1;

@@ -32,12 +32,12 @@
     <p>The Server consists of a main, parent process and a small, static
     number of child processes.</p>
 
-    <p>The parent process's job is to manage the child processes. This
+    <p>The parent process' job is to manage the child processes. This
     involves spawning children as required to ensure there are always
     <directive module="mpm_common">StartServers</directive> processes
     accepting connections.</p>
 
-    <p>Each child process consists of a a pool of worker threads and a
+    <p>Each child process consists of a pool of worker threads and a
     main thread that accepts connections and passes them to the workers via
     a work queue. The worker thread pool is dynamic, managed by a
     maintenance thread so that the number of idle threads is kept between
@@ -47,9 +47,9 @@
 <seealso><a href="../bind.html">Setting which addresses and ports Apache
 uses</a></seealso>
 
-<directivesynopsis location="mpm_common"><name>User</name>
+<directivesynopsis location="mod_unixd"><name>User</name>
 </directivesynopsis>
-<directivesynopsis location="mpm_common"><name>Group</name>
+<directivesynopsis location="mod_unixd"><name>Group</name>
 </directivesynopsis>
 <directivesynopsis location="mpm_common"><name>Listen</name>
 </directivesynopsis>

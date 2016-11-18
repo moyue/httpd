@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision : 1174747 -->
+<!-- English Revision: 1702012 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -35,27 +35,23 @@ serveur</description>
     <p>Pour activer <module>mod_info</module>, ajoutez les lignes
     suivantes &agrave; votre fichier <code>httpd.conf</code>.</p>
 
-    <example>
-      &lt;Location /infos-serveur&gt;<br />
-      <indent>
-        SetHandler server-info<br />
-      </indent>
-      &lt;/Location&gt;
-    </example>
+    <highlight language="config">
+&lt;Location "/server-info"&gt;
+    SetHandler server-info
+&lt;/Location&gt;
+    </highlight>
 
-    <p>Il est recommand&eacute; d'utiliser <module>mod_access</module> &agrave;
+    <p>Il est recommand&eacute; d'utiliser <module>mod_authz_host</module> &agrave;
     l'int&eacute;rieur de la section <directive type="section"
     module="core">Location</directive> afin de restreindre l'acc&egrave;s aux
     informations de configuration de votre serveur :</p>
 
-    <example>
-      &lt;Location /infos-serveur&gt;<br />
-      <indent>
-        SetHandler server-info<br />
-        Require host example.com<br />
-      </indent>
-      &lt;/Location&gt;
-    </example>
+    <highlight language="config">
+&lt;Location "/server-info"&gt;
+    SetHandler server-info
+    Require host example.com
+&lt;/Location&gt;
+    </highlight>
 
     <p>Une fois cette configuration effectu&eacute;e, les informations du
     serveur sont disponibles &agrave; l'adresse
@@ -82,17 +78,17 @@ serveur</description>
     serveur.</p>
 
     <example><title>Contr&ocirc;le d'acc&egrave;s</title>
-      &lt;Location /infos-serveur&gt;<br />
-      <indent>
-        SetHandler server-info<br />
-        Order allow,deny<br />
-        # Autorisation d'acc&egrave;s depuis le serveur lui-m&ecirc;me<br />
-        Allow from 127.0.0.1<br />
-        # Autorisation d'acc&egrave;s depuis une station de travail du r&eacute;seau
-	# local<br />
-        Allow from 192.168.1.17<br />
-      </indent>
-      &lt;/Location&gt;
+      <highlight language="config">
+&lt;Location "/server-info"&gt;
+    SetHandler server-info
+    # Autorisation d'acc&egrave;s depuis le serveur lui-m&ecirc;me
+    Require ip 127.0.0.1
+
+    # Autorisation d'acc&egrave;s depuis une station de travail du r&eacute;seau
+# local
+    Require ip 192.168.1.17
+&lt;/Location&gt;
+      </highlight>
     </example>
 </section>
 
@@ -127,10 +123,20 @@ serveur</description>
 
 <section id="startup"><title>Affichage de la configuration au d&eacute;marrage</title>
     <p>Si la directive de configuration define
-    <code>-DDUMP_CONFIG</code> est d&eacute;finie, <module>mod_info</module> va
+    <code>-DDUMP_CONFIG</code> est utilis&eacute;e, <module>mod_info</module> va
     envoyer la configuration pr&eacute;interpr&eacute;t&eacute;e vers <code>stdout</code> au
-    cours du d&eacute;marrage du serveur. Ceci est pratiquement &eacute;quivalent au
-    param&egrave;tre de requ&ecirc;te <code>?config</code>.</p>
+    cours du d&eacute;marrage du serveur. "Pr&eacute;interpr&eacute;t&eacute;e" signifie que
+    les directives telles que <directive type="section"
+    module="core">IfDefine</directive> et <directive type="section"
+    module="core">IfModule</directive> sont &eacute;valu&eacute;es et les variables
+    d'environnement remplac&eacute;es par leurs valeurs. Cela ne repr&eacute;sente
+    cependant pas la configuration d&eacute;finitive. En particulier, les
+    fusions ou &eacute;crasementsde d&eacute;finitions en cas de directives multiples ne sont pas
+    repr&eacute;sent&eacute;s.</p>
+
+    <p>Le r&eacute;sultat est &eacute;quivalent &agrave; celui de la requ&ecirc;te
+    <code>?config</code>.</p>
+    
 </section>
 
 <section id="limitations"><title>Limitations connues</title>
@@ -147,20 +153,21 @@ serveur</description>
       module="mod_so">LoadFile</directive>.</li>
       <li>Les directives qui contr&ocirc;lent le fichier de configuration
       lui-m&ecirc;me, comme <directive module="core">Include</directive>,
-      <directive module="core">&lt;IfModule&gt;</directive> et
-      <directive module="core">&lt;IfDefine&gt;</directive> ne sont pas
-      prises en compte, mais les directives de configuration incluses le
-      sont.</li>
+      <directive type="section" module="core">IfModule</directive> et
+      <directive type="section" module="core">IfDefine</directive> ne
+      sont pas prises en compte, mais les directives de configuration
+      incluses le sont.</li>
       <li>Les commentaires ne sont pas pris en compte (Ce qui peut &ecirc;tre
       consid&eacute;r&eacute; comme une fonctionnalit&eacute;).</li>
       <li>Les directives de configuration des fichiers
       <code>.htaccess</code> ne sont pas prises en compte (car elles ne
       font pas partie de la configuration permanente du serveur).</li>
-      <li>Les directives de conteneur comme <directive
-      module="core">&lt;Directory&gt;</directive> sont affich&eacute;es
+      <li>Les directives de conteneur comme <directive type="section"
+      module="core">Directory</directive> sont affich&eacute;es
       normalement, mais <module>mod_info</module> est incapable de
-      d&eacute;terminer le num&eacute;ro de ligne de la balise fermante <directive
-      module="core">&lt;/Directory&gt;</directive>.</li>
+      d&eacute;terminer le num&eacute;ro de ligne de la balise fermante
+      <directive type="section" module="core"
+      name="Directory">/Directory</directive>.</li>
       <li>Les directives g&eacute;n&eacute;r&eacute;es par des modules tiers comme
       <a href="http://perl.apache.org">mod_perl</a> peuvent ne pas &ecirc;tre
       prises en compte.</li>
@@ -180,13 +187,11 @@ module affich&eacute;es par le gestionnaire server-info</description>
     en tant qu'<strong>Information suppl&eacute;mentaire</strong> interpr&eacute;t&eacute;e
     en HTML pour le module <var>nom-module</var>. Exemple :</p>
 
-    <example>
-      AddModuleInfo mod_deflate.c 'Voir &lt;a \<br />
-      <indent>
-        href="http://www.apache.org/docs/&httpd.docs;/mod/mod_deflate.html"&gt;\<br />
-        http://www.apache.org/docs/&httpd.docs;/mod/mod_deflate.html&lt;/a&gt;'
-      </indent>
-    </example>
+    <highlight language="config">
+AddModuleInfo mod_deflate.c 'See &lt;a \
+    href="http://httpd.apache.org/docs/&httpd.docs;/mod/mod_deflate.html"&gt;\
+    http://httpd.apache.org/docs/&httpd.docs;/mod/mod_deflate.html&lt;/a&gt;'
+    </highlight>
 </usage>
 
 </directivesynopsis>

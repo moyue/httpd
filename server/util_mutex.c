@@ -117,7 +117,7 @@ AP_DECLARE(apr_status_t) ap_parse_mutex(const char *arg, apr_pool_t *pool,
      * are looking to use
      */
     if (file) {
-        *mutexfile = ap_server_root_relative(pool, file);
+        *mutexfile = ap_runtime_dir_relative(pool, file);
         if (!*mutexfile) {
             return APR_BADARG;
         }
@@ -165,6 +165,7 @@ AP_DECLARE_NONSTD(const char *)ap_set_mutex(cmd_parms *cmd, void *dummy,
                                             const char *arg)
 {
     apr_pool_t *p = cmd->pool;
+    apr_pool_t *ptemp = cmd->temp_pool;
     const char **elt;
     const char *mechdir;
     int no_mutex = 0, omit_pid = 0;
@@ -191,7 +192,7 @@ AP_DECLARE_NONSTD(const char *)ap_set_mutex(cmd_parms *cmd, void *dummy,
                            " (" AP_ALL_AVAILABLE_MUTEXES_STRING ")", NULL);
     }
     else if (rv == APR_BADARG
-             || (mutexdir && !ap_is_directory(p, mutexdir))) {
+             || (mutexdir && !ap_is_directory(ptemp, mutexdir))) {
         return apr_pstrcat(p, "Invalid Mutex directory in argument ",
                            mechdir, NULL);
     }
@@ -304,7 +305,7 @@ static const char *get_mutex_filename(apr_pool_t *p, mutex_cfg_t *mxcfg,
     }
 #endif
 
-    return ap_server_root_relative(p,
+    return ap_runtime_dir_relative(p,
                                    apr_pstrcat(p,
                                                mxcfg->dir,
                                                "/",
@@ -552,7 +553,7 @@ AP_CORE_DECLARE(void) ap_dump_mutexes(apr_pool_t *p, server_rec *s, apr_file_t *
         }
 
         if (mxcfg->dir)
-            dir = ap_server_root_relative(p, mxcfg->dir);
+            dir = ap_runtime_dir_relative(p, mxcfg->dir);
 
         apr_file_printf(out, "Mutex %s: dir=\"%s\" mechanism=%s %s\n", name, dir, mech,
                         mxcfg->omit_pid ? "[OmitPid]" : "");

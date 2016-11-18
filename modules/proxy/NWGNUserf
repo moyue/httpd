@@ -20,6 +20,13 @@ V_PATH = \
 			$(SERFSRC)/buckets \
 			$(ZLIBSDK) \
 			$(EOLIST)
+
+ifeq "$(wildcard $(SERFSRC)/incoming.c)" "$(SERFSRC)/incoming.c"
+V_PATH += \
+			$(SERFSRC)/auth \
+			$(EOLIST)
+endif
+
 #
 # These directories will be at the beginning of the include list, followed by
 # INCDIRS
@@ -30,10 +37,7 @@ XINCDIRS	+= \
 			$(OSSLINC)/openssl \
 			$(APR)/include \
 			$(APRUTIL)/include \
-			$(AP_WORK)/include \
-			$(AP_WORK)/modules/http \
-			$(AP_WORK)/modules/generators \
-			$(AP_WORK)/modules/ssl \
+			$(SRC)/include \
 			$(NWOS) \
 			$(EOLIST)
 
@@ -197,13 +201,34 @@ FILES_nlm_objs += \
 	$(OBJDIR)/file_buckets.o \
 	$(OBJDIR)/headers_buckets.o \
 	$(OBJDIR)/limit_buckets.o \
-	$(OBJDIR)/mmap_buckets.o \
 	$(OBJDIR)/request_buckets.o \
 	$(OBJDIR)/response_buckets.o \
 	$(OBJDIR)/simple_buckets.o \
 	$(OBJDIR)/socket_buckets.o \
 	$(OBJDIR)/ssl_buckets.o \
 	$(EOLIST)
+
+ifeq "$(wildcard $(SERFSRC)/incoming.c)" "$(SERFSRC)/incoming.c"
+ifeq "$(wildcard $(SERFSRC)/buckets/iovec_buckets.c)" "$(SERFSRC)/buckets/iovec_buckets.c"
+FILES_nlm_objs += \
+	$(OBJDIR)/auth.o \
+	$(OBJDIR)/auth_basic.o \
+	$(OBJDIR)/auth_digest.o \
+	$(OBJDIR)/bwtp_buckets.o \
+	$(OBJDIR)/incoming.o \
+	$(OBJDIR)/iovec_buckets.o \
+	$(OBJDIR)/outgoing.o \
+	$(OBJDIR)/ssltunnel.o \
+	$(EOLIST)
+ifeq "$(wildcard $(SERFSRC)/buckets/response_body_buckets.c)" "$(SERFSRC)/buckets/response_body_buckets.c"
+FILES_nlm_objs += \
+	$(OBJDIR)/response_body_buckets.o \
+	$(EOLIST)
+endif
+else
+$(error This libserf version is broken for NetWare platform!)
+endif
+endif
 
 # Build zlib from source
 FILES_nlm_objs += \
@@ -271,7 +296,7 @@ FILES_nlm_Ximports = \
 	GetSuperHighResolutionTimer \
 	$(EOLIST)
 
-# Don't link with Winsock if standard sockets are being used
+# Link with Winsock if standard sockets are NOT being used.
 ifndef USE_STDSOCKETS
 FILES_nlm_Ximports += @ws2nlm.imp \
 	$(EOLIST)
@@ -317,5 +342,3 @@ vpath %.c $(V_PATH)
 #
 
 include $(APBUILD)/NWGNUtail.inc
-
-

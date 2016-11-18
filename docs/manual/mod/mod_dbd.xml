@@ -27,7 +27,6 @@
 <status>Extension</status>
 <sourcefile>mod_dbd.c</sourcefile>
 <identifier>dbd_module</identifier>
-<compatibility>Version 2.1 and later</compatibility>
 
 <summary>
     <p><module>mod_dbd</module> manages SQL database connections using
@@ -55,12 +54,35 @@
     supersedes the modules presented in that article.</p>
 </section>
 
+<section id="connecting"><title>Connecting</title>
+
+    <p>To connect to your database, you'll need to specify
+    a driver, and connection parameters. These vary from
+    one database engine to another. For example, to connect
+    to mysql, do the following:</p>
+
+<highlight language="config">
+DBDriver mysql
+DBDParams host=localhost,dbname=pony,user=shetland,pass=appaloosa
+</highlight>
+
+    <p>You can then use this connection in a variety of other
+    modules, including <module>mod_rewrite</module>,
+    <module>mod_authn_dbd</module>, and <module>mod_lua</module>.
+    Further usage examples appear in each of those modules'
+    documentation.</p>
+
+    <p>See <directive>DBDParams</directive> for connection string
+    information for each of the supported database drivers.</p>
+
+</section>
+
 <section id="API"><title>Apache DBD API</title>
     <p><module>mod_dbd</module> exports five functions for other modules
     to use. The API is as follows:</p>
 
-    <example>
-<pre><code>typedef struct {
+<highlight language="c">
+typedef struct {
     apr_dbd_t *handle;
     apr_dbd_driver_t *driver;
     apr_hash_t *prepared;
@@ -85,7 +107,7 @@ AP_DECLARE(ap_dbd_t*) ap_dbd_acquire(request_rec*);
 /* acquire a connection that will have the lifetime of a connection
  * and MUST NOT be explicitly closed.  Return NULL on error.
  */
-AP_DECLARE(ap_dbd_t*) ap_dbd_cacquire(request_rec*);
+AP_DECLARE(ap_dbd_t*) ap_dbd_cacquire(conn_rec*);
 
 /* Prepare a statement for use by a client module */
 AP_DECLARE(void) ap_dbd_prepare(server_rec*, const char*, const char*);
@@ -96,8 +118,7 @@ APR_DECLARE_OPTIONAL_FN(void, ap_dbd_close, (server_rec*, ap_dbd_t*));
 APR_DECLARE_OPTIONAL_FN(ap_dbd_t*, ap_dbd_acquire, (request_rec*));
 APR_DECLARE_OPTIONAL_FN(ap_dbd_t*, ap_dbd_cacquire, (conn_rec*));
 APR_DECLARE_OPTIONAL_FN(void, ap_dbd_prepare, (server_rec*, const char*, const char*));
-</code></pre>
-    </example>
+</highlight>
 </section>
 
 <section id="prepared"><title>SQL Prepared Statements</title>
@@ -112,7 +133,7 @@ APR_DECLARE_OPTIONAL_FN(void, ap_dbd_prepare, (server_rec*, const char*, const c
     <p>It is up to dbd user modules to use the prepared statements
     and document what statements can be specified in httpd.conf,
     or to provide their own directives and use <code>ap_dbd_prepare</code>.</p>
-	
+
 	<note type="warning"><title>Caveat</title>
 	When using prepared statements with a MySQL database, it is preferred to set
 	<code>reconnect</code> to 0 in the connection string as to avoid errors that
@@ -299,6 +320,21 @@ APR_DECLARE_OPTIONAL_FN(void, ap_dbd_prepare, (server_rec*, const char*, const c
     <p>Set the time to keep idle connections alive when the number
     of connections specified in DBDKeep has been exceeded (threaded
     platforms only).</p>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>DBDInitSQL</name>
+<description>Execute an SQL statement after connecting to a database</description>
+<syntax>DBDInitSQL <var>"SQL statement"</var></syntax>
+<contextlist><context>server config</context><context>virtual host</context>
+</contextlist>
+
+<usage>
+    <p>Modules, that wish it, can have one or more SQL statements
+    executed when a connection to a database is created. Example
+    usage could be initializing certain values or adding a log
+    entry when a new connection is made to the database.</p>
 </usage>
 </directivesynopsis>
 

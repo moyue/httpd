@@ -126,7 +126,7 @@ static void format_kbyte_out(request_rec *r, apr_off_t kbytes)
         ap_rprintf(r, "%.1f GB", (float) kbytes / MBYTE);
 }
 
-static void show_time(request_rec *r, apr_interval_time_t tsecs)
+static void show_time(request_rec *r, apr_uint32_t tsecs)
 {
     int days, hrs, mins, secs;
 
@@ -183,7 +183,8 @@ static int status_handler(request_rec *r)
 {
     const char *loc;
     apr_time_t nowtime;
-    apr_interval_time_t up_time;
+    apr_uint32_t up_time;
+    ap_loadavg_t t;
     int j, i, res, written;
     int ready;
     int busy;
@@ -292,6 +293,8 @@ static int status_handler(request_rec *r)
         }
     }
 
+    ws_record = apr_palloc(r->pool, sizeof *ws_record);
+    
     for (i = 0; i < server_limit; ++i) {
 #ifdef HAVE_TIMES
         clock_t proc_tu = 0, proc_ts = 0, proc_tcu = 0, proc_tcs = 0;
@@ -306,7 +309,7 @@ static int status_handler(request_rec *r)
         for (j = 0; j < thread_limit; ++j) {
             int indx = (i * thread_limit) + j;
 
-            ws_record = ap_get_scoreboard_worker_from_indexes(i, j);
+            ap_copy_scoreboard_worker(ws_record, i, j);
             res = ws_record->status;
 
             if ((i >= max_servers || j >= threads_per_child)
@@ -391,6 +394,7 @@ static int status_handler(request_rec *r)
     /* up_time in seconds */
     up_time = (apr_uint32_t) apr_time_sec(nowtime -
                                ap_scoreboard_image->global->restart_time);
+    ap_get_loadavg(&t);
 
     if (!short_report) {
         ap_rputs(DOCTYPE_HTML_3_2
@@ -398,10 +402,13 @@ static int status_handler(request_rec *r)
                  "<title>Apache Status</title>\n"
                  "</head><body>\n"
                  "<h1>Apache Server Status for ", r);
-        ap_rvputs(r, ap_get_server_name(r), " (via ", r->connection->local_ip,
+        ap_rvputs(r, ap_escape_html(r->pool, ap_get_server_name(r)),
+                  " (via ", r->connection->local_ip,
                   ")</h1>\n\n", NULL);
         ap_rvputs(r, "<dl><dt>Server Version: ",
                   ap_get_server_description(), "</dt>\n", NULL);
+        ap_rvputs(r, "<dt>Server MPM: ",
+                  ap_show_mpm(), "</dt>\n", NULL);
         ap_rvputs(r, "<dt>Server Built: ",
                   ap_get_server_built(), "\n</dt></dl><hr /><dl>\n", NULL);
         ap_rvputs(r, "<dt>Current Time: ",
@@ -419,6 +426,36 @@ static int status_handler(request_rec *r)
         ap_rputs("<dt>Server uptime: ", r);
         show_time(r, up_time);
         ap_rputs("</dt>\n", r);
+        ap_rprintf(r, "<dt>Server load: %.2f %.2f %.2f</dt>\n",
+                   t.loadavg, t.loadavg5, t.loadavg15);
+    }
+    else {
+        ap_rvputs(r, ap_get_server_name(r), "\n", NULL);
+        ap_rvputs(r, "ServerVersion: ",
+                  ap_get_server_description(), "\n", NULL);
+        ap_rvputs(r, "ServerMPM: ",
+                  ap_show_mpm(), "\n", NULL);
+        ap_rvputs(r, "Server Built: ",
+                  ap_get_server_built(), "\n", NULL);
+        ap_rvputs(r, "CurrentTime: ",
+                  ap_ht_time(r->pool, nowtime, DEFAULT_TIME_FORMAT, 0),
+                             "\n", NULL);
+        ap_rvputs(r, "RestartTime: ",
+                  ap_ht_time(r->pool,
+                             ap_scoreboard_image->global->restart_time,
+                             DEFAULT_TIME_FORMAT, 0),
+                  "\n", NULL);
+        ap_rprintf(r, "ParentServerConfigGeneration: %d\n",
+                   ap_state_query(AP_SQ_CONFIG_GEN));
+        ap_rprintf(r, "ParentServerMPMGeneration: %d\n",
+                   (int)mpm_generation);
+        ap_rprintf(r, "ServerUptimeSeconds: %u\n",
+                   up_time);
+        ap_rputs("ServerUptime:", r);
+        show_time(r, up_time);
+        ap_rputs("\n", r);
+        ap_rprintf(r, "Load1: %.2f\nLoad5: %.2f\nLoad15: %.2f\n",
+                   t.loadavg, t.loadavg5, t.loadavg15);
     }
 
     if (ap_extended_status) {
@@ -429,6 +466,9 @@ static int status_handler(request_rec *r)
 
 #ifdef HAVE_TIMES
             /* Allow for OS/2 not having CPU stats */
+            ap_rprintf(r, "CPUUser: %g\nCPUSystem: %g\nCPUChildrenUser: %g\nCPUChildrenSystem: %g\n",
+                       tu / tick, ts / tick, tcu / tick, tcs / tick);
+
             if (ts || tu || tcu || tcs)
                 ap_rprintf(r, "CPULoad: %g\n",
                            (tu + ts + tcu + tcs) / tick / up_time * 100.);
@@ -491,7 +531,7 @@ static int status_handler(request_rec *r)
 
     if (is_async) {
         int write_completion = 0, lingering_close = 0, keep_alive = 0,
-            connections = 0;
+            connections = 0, stopping = 0, procs = 0;
         /*
          * These differ from 'busy' and 'ready' in how gracefully finishing
          * threads are counted. XXX: How to make this clear in the html?
@@ -499,13 +539,15 @@ static int status_handler(request_rec *r)
         int busy_workers = 0, idle_workers = 0;
         if (!short_report)
             ap_rputs("\n\n<table rules=\"all\" cellpadding=\"1%\">\n"
-                     "<tr><th rowspan=\"2\">PID</th>"
+                     "<tr><th rowspan=\"2\">Slot</th>"
+                         "<th rowspan=\"2\">PID</th>"
+                         "<th rowspan=\"2\">Stopping</th>"
                          "<th colspan=\"2\">Connections</th>\n"
                          "<th colspan=\"2\">Threads</th>"
-                         "<th colspan=\"4\">Async connections</th></tr>\n"
+                         "<th colspan=\"3\">Async connections</th></tr>\n"
                      "<tr><th>total</th><th>accepting</th>"
-                         "<th>busy</th><th>idle</th><th>writing</th>"
-                         "<th>keep-alive</th><th>closing</th></tr>\n", r);
+                         "<th>busy</th><th>idle</th>"
+                         "<th>writing</th><th>keep-alive</th><th>closing</th></tr>\n", r);
         for (i = 0; i < server_limit; ++i) {
             ps_record = ap_get_scoreboard_process(i);
             if (ps_record->pid) {
@@ -515,26 +557,45 @@ static int status_handler(request_rec *r)
                 lingering_close  += ps_record->lingering_close;
                 busy_workers     += thread_busy_buffer[i];
                 idle_workers     += thread_idle_buffer[i];
-                if (!short_report)
-                    ap_rprintf(r, "<tr><td>%" APR_PID_T_FMT "</td><td>%u</td>"
-                                      "<td>%s</td><td>%u</td><td>%u</td>"
+                if (!short_report) {
+                    const char *dying = "no";
+                    const char *old = "";
+                    if (ps_record->quiescing) {
+                        dying = "yes";
+                        stopping++;
+                    }
+                    if (ps_record->generation != mpm_generation)
+                        old = " (old gen)";
+                    procs++;
+                    ap_rprintf(r, "<tr><td>%u</td><td>%" APR_PID_T_FMT "</td>"
+                                      "<td>%s%s</td>"
+                                      "<td>%u</td><td>%s</td>"
+                                      "<td>%u</td><td>%u</td>"
                                       "<td>%u</td><td>%u</td><td>%u</td>"
                                       "</tr>\n",
-                               ps_record->pid, ps_record->connections,
+                               i, ps_record->pid,
+                               dying, old,
+                               ps_record->connections,
                                ps_record->not_accepting ? "no" : "yes",
-                               thread_busy_buffer[i], thread_idle_buffer[i],
+                               thread_busy_buffer[i],
+                               thread_idle_buffer[i],
                                ps_record->write_completion,
                                ps_record->keep_alive,
                                ps_record->lingering_close);
+                }
             }
         }
         if (!short_report) {
-            ap_rprintf(r, "<tr><td>Sum</td><td>%d</td><td>&nbsp;</td><td>%d</td>"
-                          "<td>%d</td><td>%d</td><td>%d</td><td>%d</td>"
+            ap_rprintf(r, "<tr><td>Sum</td>"
+                          "<td>%d</td><td>%d</td>"
+                          "<td>%d</td><td>&nbsp;</td>"
+                          "<td>%d</td><td>%d</td>"
+                          "<td>%d</td><td>%d</td><td>%d</td>"
                           "</tr>\n</table>\n",
-                          connections, busy_workers, idle_workers,
+                          procs, stopping,
+                          connections,
+                          busy_workers, idle_workers,
                           write_completion, keep_alive, lingering_close);
-
         }
         else {
             ap_rprintf(r, "ConnsTotal: %d\n"
@@ -582,8 +643,8 @@ static int status_handler(request_rec *r)
                  "\"<b><code>L</code></b>\" Logging, \n"
                  "\"<b><code>G</code></b>\" Gracefully finishing,<br /> \n"
                  "\"<b><code>I</code></b>\" Idle cleanup of worker, \n"
-                 "\"<b><code>.</code></b>\" Open slot with no current process,<br />\n"
-                 "<p />\n", r);
+                 "\"<b><code>.</code></b>\" Open slot with no current process<br />\n"
+                 "</p>\n", r);
         if (!ap_extended_status) {
             int j;
             int k = 0;
@@ -624,12 +685,12 @@ static int status_handler(request_rec *r)
 #endif
                      "<th>SS</th><th>Req</th>"
                      "<th>Conn</th><th>Child</th><th>Slot</th>"
-                     "<th>Client</th><th>VHost</th>"
+                     "<th>Client</th><th>Protocol</th><th>VHost</th>"
                      "<th>Request</th></tr>\n\n", r);
 
         for (i = 0; i < server_limit; ++i) {
             for (j = 0; j < thread_limit; ++j) {
-                ws_record = ap_get_scoreboard_worker_from_indexes(i, j);
+                ap_copy_scoreboard_worker(ws_record, i, j);
 
                 if (ws_record->access_count == 0 &&
                     (ws_record->status == SERVER_READY ||
@@ -738,12 +799,14 @@ static int status_handler(request_rec *r)
                     format_byte_out(r, bytes);
                     ap_rputs(")\n", r);
                     ap_rprintf(r,
-                               " <i>%s {%s}</i> <b>[%s]</b><br />\n\n",
+                               " <i>%s {%s}</i> <i>(%s)</i> <b>[%s]</b><br />\n\n",
                                ap_escape_html(r->pool,
                                               ws_record->client),
                                ap_escape_html(r->pool,
                                               ap_escape_logitem(r->pool,
                                                                 ws_record->request)),
+                               ap_escape_html(r->pool,
+                                              ws_record->protocol),
                                ap_escape_html(r->pool,
                                               ws_record->vhost));
                 }
@@ -822,10 +885,12 @@ static int status_handler(request_rec *r)
                                (float)conn_bytes / KBYTE, (float) my_bytes / MBYTE,
                                (float)bytes / MBYTE);
 
-                    ap_rprintf(r, "</td><td>%s</td><td nowrap>%s</td>"
+                    ap_rprintf(r, "</td><td>%s</td><td>%s</td><td nowrap>%s</td>"
                                   "<td nowrap>%s</td></tr>\n\n",
                                ap_escape_html(r->pool,
                                               ws_record->client),
+                               ap_escape_html(r->pool,
+                                              ws_record->protocol),
                                ap_escape_html(r->pool,
                                               ws_record->vhost),
                                ap_escape_html(r->pool,
@@ -947,4 +1012,3 @@ AP_DECLARE_MODULE(status) =
     NULL,                       /* command table */
     register_hooks              /* register_hooks */
 };
-

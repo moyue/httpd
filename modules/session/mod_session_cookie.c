@@ -60,9 +60,6 @@ static apr_status_t session_cookie_save(request_rec * r, session_rec * z)
     session_cookie_dir_conf *conf = ap_get_module_config(r->per_dir_config,
                                                     &session_cookie_module);
 
-    /* don't cache auth protected pages */
-    apr_table_addn(r->headers_out, "Cache-Control", "no-cache");
-
     /* create RFC2109 compliant cookie */
     if (conf->name_set) {
         if (z->encoded && z->encoded[0]) {
@@ -157,11 +154,13 @@ static apr_status_t session_cookie_load(request_rec * r, session_rec ** z)
     zz->pool = m->pool;
     zz->entries = apr_table_make(m->pool, 10);
     zz->encoded = val;
-    zz->uuid = (apr_uuid_t *) apr_pcalloc(m->pool, sizeof(apr_uuid_t));
     *z = zz;
 
     /* put the session in the notes so we don't have to parse it again */
     apr_table_setn(m->notes, note, (char *)zz);
+
+    /* don't cache auth protected pages */
+    apr_table_addn(r->headers_out, "Cache-Control", "no-cache, private");
 
     return OK;
 

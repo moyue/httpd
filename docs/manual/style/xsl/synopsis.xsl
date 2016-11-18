@@ -36,6 +36,8 @@
         <xsl:call-template name="top" />&lf;
 
         <div id="page-content">&lf;
+            <xsl:call-template name="retired" />
+
             <div id="preamble">
                 <h1>
                     <xsl:choose>
@@ -166,6 +168,18 @@
             <xsl:if test="not($is-chm) or seealso">
                 <div id="quickview">
                     <xsl:if test="not($is-chm)">
+                        <xsl:if test="section">
+                            <h3>
+                                <xsl:value-of select="$message
+                                                      [@id='topics']" />
+                            </h3>&lf;
+
+                            <ul id="topics">&lf;
+                            <xsl:apply-templates
+                                select="section" mode="index" />
+                            </ul>
+                        </xsl:if>
+
                         <h3 class="directives">
                             <xsl:value-of select="$message
                                                   [@id='directives']" />
@@ -228,22 +242,58 @@
                             </p>&lf;
                         </xsl:otherwise>
                         </xsl:choose>
-
-                        <xsl:if test="section">
-                            <h3>
-                                <xsl:value-of select="$message
-                                                      [@id='topics']" />
-                            </h3>&lf;
-
-                            <ul id="topics">&lf;
-                            <xsl:apply-templates
-                                select="section" mode="index" />
-                            </ul>
-                        </xsl:if>
                     </xsl:if> <!-- /!is-chm -->
 
-                    <xsl:if test="seealso">
-	                    <h3>
+                    <h3>
+                       <xsl:value-of select="$message[@id='foundabug']" />
+                    </h3>
+                    <ul class="seealso">
+                        <!-- Bugzilla mpm components are prefixed with
+                            'mpm_', meanwhile the page name in the docs do
+                            not contain it. For example, Bugzilla has
+                            the 'mpm_event' component and the doc has the
+                            'event' page. This creates an inconsistency
+                            in the URL generation, fixed by the following
+                            check. -->
+                        <xsl:variable name="bugzilla_prefix">
+                            <xsl:choose>
+                                <xsl:when test="name='worker' or name='event'
+                                                or name='prefork'">
+                                    <xsl:value-of select="string('mpm_')"/>
+                                </xsl:when>
+                            </xsl:choose>
+                        </xsl:variable>
+                        <li>
+                            <!-- The link below is not dynamic and points only
+                                 to the 2.4 release since it makes sense to keep
+                                 it as reference even for trunk. -->
+                            <a href="https://www.apache.org/dist/httpd/CHANGES_2.4">
+                                <xsl:value-of
+                                    select="$message[@id='httpdchangelog']" />
+                            </a>
+                        </li>
+                        <li>
+                            <!-- The line below is not splitted in multiple
+                                 lines to avoid rendering a broken URL. -->
+                            <a href="https://bz.apache.org/bugzilla/buglist.cgi?bug_status=__open__&amp;list_id=144532&amp;product=Apache%20httpd-2&amp;query_format=specific&amp;order=changeddate%20DESC%2Cpriority%2Cbug_severity&amp;component={$bugzilla_prefix}{name}">
+                                <xsl:value-of
+                                    select="$message[@id='httpdknownissues']" />
+                            </a>
+                        </li>
+                        <li>
+                            <!-- The line below is not splitted in multiple
+                                 lines to avoid rendering a broken URL. -->
+                            <a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2&amp;component={$bugzilla_prefix}{name}">
+                                <xsl:value-of
+                                    select="$message[@id='httpdreportabug']" />
+                            </a>
+                        </li>
+                    </ul>
+                    <!-- The seealso section shows links to related documents
+                         explicitly set in .xml docs or simply the comments. -->
+                    <xsl:if test="seealso or not($is-chm or $is-zip or
+                                                $metafile/basename = 'index')">
+                        <h3>
                             <xsl:value-of select="$message
                                                   [@id='seealso']" />
                         </h3>&lf;
@@ -254,6 +304,11 @@
                                 <xsl:apply-templates />
                             </li>&lf;
                         </xsl:for-each>
+                        <xsl:if test="not($is-chm or $is-zip or $metafile/basename = 'index')">
+                            <li><a href="#comments_section"><xsl:value-of
+                                    select="$message[@id='comments']" /></a>
+                            </li>
+                        </xsl:if>
                         </ul>
                     </xsl:if>
                 </div> <!-- /#quickview -->
@@ -304,26 +359,54 @@
         <!-- Directive heading gets both mixed case and lowercase      -->
         <!-- anchors, and includes lt/gt only for "section" directives -->
         <h2>
-            <a id="{name}" name="{name}">
-                <xsl:if test="@type='section'">&lt;</xsl:if>
-                <xsl:value-of select="name" />
-                <xsl:if test="@type='section'">&gt;</xsl:if>
-            </a>
-
             <xsl:choose>
             <xsl:when test="$message
-                            [@id='directive']/@replace-space-with">
-                <xsl:value-of select="$message
-                                      [@id='directive']/@replace-space-with"/>
+                            [@id='directive']/@before-name = 'yes'">
+                <a id="{$lowername}" name="{$lowername}">
+                    <xsl:value-of select="$message[@id='directive']" />
+                </a>
+
+                <xsl:choose>
+                <xsl:when test="$message
+                                [@id='directive']/@replace-space-with">
+                    <xsl:value-of select="$message
+                                         [@id='directive']/@replace-space-with"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:text> </xsl:text>
+                </xsl:otherwise>
+                </xsl:choose>
+
+                <a id="{name}" name="{name}">
+                    <xsl:if test="@type='section'">&lt;</xsl:if>
+                    <xsl:value-of select="name" />
+                    <xsl:if test="@type='section'">&gt;</xsl:if>
+                </a>
             </xsl:when>
+
             <xsl:otherwise>
-                <xsl:text> </xsl:text>
+                <a id="{name}" name="{name}">
+                    <xsl:if test="@type='section'">&lt;</xsl:if>
+                    <xsl:value-of select="name" />
+                    <xsl:if test="@type='section'">&gt;</xsl:if>
+                </a>
+
+                <xsl:choose>
+                <xsl:when test="$message
+                                [@id='directive']/@replace-space-with">
+                    <xsl:value-of select="$message
+                                         [@id='directive']/@replace-space-with"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:text> </xsl:text>
+                </xsl:otherwise>
+                </xsl:choose>
+
+                <a id="{$lowername}" name="{$lowername}">
+                    <xsl:value-of select="$message[@id='directive']" />
+                </a>
             </xsl:otherwise>
             </xsl:choose>
-
-            <a id="{$lowername}" name="{$lowername}">
-                <xsl:value-of select="$message[@id='directive']" />
-            </a>
         </h2>&lf;
 
         <!-- Directive header -->
@@ -500,6 +583,9 @@
 </xsl:when>
 <xsl:when test="normalize-space(.) = '.htaccess'">
     <xsl:value-of select="$message[@id='htaccess']" />
+</xsl:when>
+<xsl:when test="normalize-space(.) = 'proxy section'">
+    <xsl:value-of select="$message[@id='proxy']" />
 </xsl:when>
 <xsl:otherwise> <!-- error -->
     <xsl:message terminate="yes">

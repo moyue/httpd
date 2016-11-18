@@ -28,7 +28,6 @@
 <status>Extension</status>
 <sourcefile>mod_authn_anon.c</sourcefile>
 <identifier>authn_anon_module</identifier>
-<compatibility>Available in Apache 2.1 and later</compatibility>
 
 <summary>
     <p>This module provides authentication front-ends such as
@@ -81,22 +80,22 @@
     </ul>
 
     <example><title>Example</title>
-      &lt;Directory /var/www/html/private&gt;
-      <indent>
-        AuthName "Use 'anonymous' &amp; Email address for guest entry"<br />
-        AuthType Basic<br />
-        AuthBasicProvider file anon<br />
-        AuthUserFile /path/to/your/.htpasswd<br />
-        <br />
-        Anonymous_NoUserID off<br />
-        Anonymous_MustGiveEmail on<br />
-        Anonymous_VerifyEmail on<br />
-        Anonymous_LogEmail on<br />
-        Anonymous anonymous guest www test welcome<br />
-        <br />
-        Require valid-user<br />
-      </indent>
-      &lt;/Directory&gt;
+    <highlight language="config">
+&lt;Directory "/var/www/html/private"&gt;
+    AuthName "Use 'anonymous' &amp; Email address for guest entry"
+    AuthType Basic
+    AuthBasicProvider file anon
+    AuthUserFile "/path/to/your/.htpasswd"
+
+    Anonymous_NoUserID off
+    Anonymous_MustGiveEmail on
+    Anonymous_VerifyEmail on
+    Anonymous_LogEmail on
+    Anonymous anonymous guest www test welcome
+
+    Require valid-user
+&lt;/Directory&gt;
+      </highlight>
     </example>
 </section>
 
@@ -122,7 +121,9 @@ password verification</description>
     userIDs.</p>
 
     <example><title>Example:</title>
+    <highlight language="config">
       Anonymous anonymous "Not Registered" "I don't know"
+    </highlight>
     </example>
 
     <p>This would allow the user to enter without password

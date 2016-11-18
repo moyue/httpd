@@ -94,8 +94,11 @@ static apr_status_t dbd_init(request_rec *r, const char *query, ap_dbd_t **dbdp,
 
 /**
  * Load the session by the key specified.
+ *
+ * The session value is allocated using the passed apr_pool_t.
  */
-static apr_status_t dbd_load(request_rec * r, const char *key, const char **val)
+static apr_status_t dbd_load(apr_pool_t *p, request_rec * r,
+                             const char *key, const char **val)
 {
 
     apr_status_t rv;
@@ -138,7 +141,7 @@ static apr_status_t dbd_load(request_rec * r, const char *key, const char **val)
             return APR_EGENERAL;
         }
         if (*val == NULL) {
-            *val = apr_dbd_get_entry(dbd->driver, row, 0);
+            *val = apr_pstrdup(p, apr_dbd_get_entry(dbd->driver, row, 0));
         }
         /* we can't break out here or row won't get cleaned up */
     }
@@ -190,7 +193,7 @@ static apr_status_t session_dbd_load(request_rec * r, session_rec ** z)
     }
 
     /* first look in the notes */
-    note = apr_pstrcat(r->pool, MOD_SESSION_DBD, name, NULL);
+    note = apr_pstrcat(m->pool, MOD_SESSION_DBD, name, NULL);
     zz = (session_rec *)apr_table_get(m->notes, note);
     if (zz) {
         *z = zz;
@@ -203,7 +206,7 @@ static apr_status_t session_dbd_load(request_rec * r, session_rec ** z)
         /* load an RFC2109 or RFC2965 compliant cookie */
         ap_cookie_read(r, name, &key, conf->remove);
         if (key) {
-            ret = dbd_load(r, key, &val);
+            ret = dbd_load(m->pool, r, key, &val);
             if (ret != APR_SUCCESS) {
                 return ret;
             }
@@ -214,7 +217,7 @@ static apr_status_t session_dbd_load(request_rec * r, session_rec ** z)
     /* load named session */
     else if (conf->peruser) {
         if (r->user) {
-            ret = dbd_load(r, r->user, &val);
+            ret = dbd_load(m->pool, r, r->user, &val);
             if (ret != APR_SUCCESS) {
                 return ret;
             }
@@ -227,21 +230,23 @@ static apr_status_t session_dbd_load(request_rec * r, session_rec ** z)
     }
 
     /* create a new session and return it */
-    zz = (session_rec *) apr_pcalloc(r->pool, sizeof(session_rec));
-    zz->pool = r->pool;
+    zz = (session_rec *) apr_pcalloc(m->pool, sizeof(session_rec));
+    zz->pool = m->pool;
     zz->entries = apr_table_make(zz->pool, 10);
-    zz->uuid = (apr_uuid_t *) apr_pcalloc(zz->pool, sizeof(apr_uuid_t));
-    if (key) {
-        apr_uuid_parse(zz->uuid, key);
-    }
-    else {
-        apr_uuid_get(zz->uuid);
+    if (key && val) {
+        apr_uuid_t *uuid = apr_pcalloc(zz->pool, sizeof(apr_uuid_t));
+        if (APR_SUCCESS == apr_uuid_parse(uuid, key)) {
+            zz->uuid = uuid;
+        }
     }
     zz->encoded = val;
     *z = zz;
 
     /* put the session in the notes so we don't have to parse it again */
     apr_table_setn(m->notes, note, (char *)zz);
+
+    /* don't cache pages with a session */
+    apr_table_addn(r->headers_out, "Cache-Control", "no-cache, private");
 
     return OK;
 
@@ -250,8 +255,8 @@ static apr_status_t session_dbd_load(request_rec * r, session_rec ** z)
 /**
  * Save the session by the key specified.
  */
-static apr_status_t dbd_save(request_rec * r, const char *key, const char *val,
-                             apr_int64_t expiry)
+static apr_status_t dbd_save(request_rec * r, const char *oldkey,
+        const char *newkey, const char *val, apr_int64_t expiry)
 {
 
     apr_status_t rv;
@@ -272,22 +277,24 @@ static apr_status_t dbd_save(request_rec * r, const char *key, const char *val,
     if (rv) {
         return rv;
     }
-    rv = apr_dbd_pvbquery(dbd->driver, r->pool, dbd->handle, &rows, statement,
-                          val, &expiry, key, NULL);
-    if (rv) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01857)
-                      "query execution error updating session '%s' "
-                      "using database query '%s': %s", key, conf->updatelabel,
-                      apr_dbd_error(dbd->driver, dbd->handle, rv));
-        return APR_EGENERAL;
-    }
 
-    /*
-     * if some rows were updated it means a session existed and was updated,
-     * so we are done.
-     */
-    if (rows != 0) {
-        return APR_SUCCESS;
+    if (oldkey) {
+        rv = apr_dbd_pvbquery(dbd->driver, r->pool, dbd->handle, &rows,
+                statement, val, &expiry, newkey, oldkey, NULL);
+        if (rv) {
+            ap_log_rerror(
+                    APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01857) "query execution error updating session '%s' "
+                    "using database query '%s': %s/%s", oldkey, newkey, conf->updatelabel, apr_dbd_error(dbd->driver, dbd->handle, rv));
+            return APR_EGENERAL;
+        }
+
+        /*
+         * if some rows were updated it means a session existed and was updated,
+         * so we are done.
+         */
+        if (rows != 0) {
+            return APR_SUCCESS;
+        }
     }
 
     if (conf->insertlabel == NULL) {
@@ -301,11 +308,11 @@ static apr_status_t dbd_save(request_rec * r, const char *key, const char *val,
         return rv;
     }
     rv = apr_dbd_pvbquery(dbd->driver, r->pool, dbd->handle, &rows, statement,
-                          val, &expiry, key, NULL);
+                          val, &expiry, newkey, NULL);
     if (rv) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, APLOGNO(01859)
                       "query execution error inserting session '%s' "
-                      "in database with '%s': %s", key, conf->insertlabel,
+                      "in database with '%s': %s", newkey, conf->insertlabel,
                       apr_dbd_error(dbd->driver, dbd->handle, rv));
         return APR_EGENERAL;
     }
@@ -320,7 +327,7 @@ static apr_status_t dbd_save(request_rec * r, const char *key, const char *val,
 
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01860)
                   "the session insert query did not cause any rows to be added "
-                  "to the database for session '%s', session not inserted", key);
+                  "to the database for session '%s', session not inserted", newkey);
 
     return APR_EGENERAL;
 
@@ -333,18 +340,12 @@ static apr_status_t dbd_remove(request_rec * r, const char *key)
 {
 
     apr_status_t rv;
+    ap_dbd_t *dbd;
     apr_dbd_prepared_t *statement;
     int rows = 0;
 
     session_dbd_dir_conf *conf = ap_get_module_config(r->per_dir_config,
                                                       &session_dbd_module);
-    ap_dbd_t *dbd = session_dbd_acquire_fn(r);
-    if (dbd == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01861)
-                      "failed to acquire database connection to remove "
-                      "session with key '%s'", key);
-        return APR_EGENERAL;
-    }
 
     if (conf->deletelabel == NULL) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01862)
@@ -352,15 +353,13 @@ static apr_status_t dbd_remove(request_rec * r, const char *key)
         return APR_EGENERAL;
     }
 
-    statement = apr_hash_get(dbd->prepared, conf->deletelabel,
-                             APR_HASH_KEY_STRING);
-    if (statement == NULL) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01863)
-                      "prepared statement could not be found for "
-                      "SessionDBDdeletelabel with the label '%s'",
-                      conf->deletelabel);
-        return APR_EGENERAL;
+    rv = dbd_init(r, conf->deletelabel, &dbd, &statement);
+    if (rv != APR_SUCCESS) {
+        /* No need to do additional error logging here, it has already
+           been done in dbd_init if needed */
+        return rv;
     }
+
     rv = apr_dbd_pvbquery(dbd->driver, r->pool, dbd->handle, &rows, statement,
                           key, NULL);
     if (rv != APR_SUCCESS) {
@@ -405,27 +404,35 @@ static apr_status_t dbd_clean(apr_pool_t *p, server_rec *s)
 static apr_status_t session_dbd_save(request_rec * r, session_rec * z)
 {
 
-    char *buffer;
     apr_status_t ret = APR_SUCCESS;
     session_dbd_dir_conf *conf = ap_get_module_config(r->per_dir_config,
                                                       &session_dbd_module);
 
     /* support anonymous sessions */
     if (conf->name_set || conf->name2_set) {
+        char *oldkey = NULL, *newkey = NULL;
 
-        /* don't cache pages with a session */
-        apr_table_addn(r->headers_out, "Cache-Control", "no-cache");
-
-        /* must we create a uuid? */
-        buffer = apr_pcalloc(r->pool, APR_UUID_FORMATTED_LENGTH + 1);
-        apr_uuid_format(buffer, z->uuid);
+        /* if the session is new or changed, make a new session ID */
+        if (z->uuid) {
+            oldkey = apr_pcalloc(r->pool, APR_UUID_FORMATTED_LENGTH + 1);
+            apr_uuid_format(oldkey, z->uuid);
+        }
+        if (z->dirty || !oldkey) {
+            z->uuid = apr_pcalloc(z->pool, sizeof(apr_uuid_t));
+            apr_uuid_get(z->uuid);
+            newkey = apr_pcalloc(r->pool, APR_UUID_FORMATTED_LENGTH + 1);
+            apr_uuid_format(newkey, z->uuid);
+        }
+        else {
+            newkey = oldkey;
+        }
 
         /* save the session with the uuid as key */
         if (z->encoded && z->encoded[0]) {
-            ret = dbd_save(r, buffer, z->encoded, z->expiry);
+            ret = dbd_save(r, oldkey, newkey, z->encoded, z->expiry);
         }
         else {
-            ret = dbd_remove(r, buffer);
+            ret = dbd_remove(r, oldkey);
         }
         if (ret != APR_SUCCESS) {
             return ret;
@@ -433,13 +440,13 @@ static apr_status_t session_dbd_save(request_rec * r, session_rec * z)
 
         /* create RFC2109 compliant cookie */
         if (conf->name_set) {
-            ap_cookie_write(r, conf->name, buffer, conf->name_attrs, z->maxage,
+            ap_cookie_write(r, conf->name, newkey, conf->name_attrs, z->maxage,
                             r->headers_out, r->err_headers_out, NULL);
         }
 
         /* create RFC2965 compliant cookie */
         if (conf->name2_set) {
-            ap_cookie_write2(r, conf->name2, buffer, conf->name2_attrs, z->maxage,
+            ap_cookie_write2(r, conf->name2, newkey, conf->name2_attrs, z->maxage,
                              r->headers_out, r->err_headers_out, NULL);
         }
 
@@ -451,10 +458,10 @@ static apr_status_t session_dbd_save(request_rec * r, session_rec * z)
     else if (conf->peruser) {
 
         /* don't cache pages with a session */
-        apr_table_addn(r->headers_out, "Cache-Control", "no-cache");
+        apr_table_addn(r->headers_out, "Cache-Control", "no-cache, private");
 
         if (r->user) {
-            ret = dbd_save(r, r->user, z->encoded, z->expiry);
+            ret = dbd_save(r, r->user, r->user, z->encoded, z->expiry);
             if (ret != APR_SUCCESS) {
                 return ret;
             }

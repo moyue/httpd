@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision: 737588:1174747 (outdated) -->
+<!-- English Revision: 1726339 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -61,29 +61,25 @@ d'authentification</title>
 	<example><title>V&eacute;rification dans plusieurs fichiers de mots de
 	passe au format texte</title>
 
-        # On v&eacute;rifie tout d'abord ici<br />
-        &lt;AuthnProviderAlias file file1&gt;<br />
-        <indent>
-            AuthUserFile /www/conf/passwords1<br />
-        </indent>
-        &lt;/AuthnProviderAlias&gt;<br />
-        <br />
-        # On v&eacute;rifie ensuite l&agrave;<br />
-        &lt;AuthnProviderAlias file file2&gt;   <br />
-        <indent>
-            AuthUserFile /www/conf/passwords2<br />
-        </indent>
-        &lt;/AuthnProviderAlias&gt;<br />
-        <br />
-        &lt;Directory /var/web/pages/secure&gt;<br />
-        <indent>
-            AuthBasicProvider file1 file2<br />
-            <br />
-            AuthType Basic<br />
-            AuthName "Zone prot&eacute;g&eacute;e"<br />
-            Require valid-user<br />
-        </indent>
-        &lt;/Directory&gt;<br />
+        <highlight language="config">
+# Premi&egrave;re v&eacute;rification
+&lt;AuthnProviderAlias file file1&gt;
+    AuthUserFile "/www/conf/passwords1"
+&lt;/AuthnProviderAlias&gt;
+
+# V&eacute;rification suivante
+&lt;AuthnProviderAlias file file2&gt;   
+    AuthUserFile "/www/conf/passwords2"
+&lt;/AuthnProviderAlias&gt;
+
+&lt;Directory "/var/web/pages/secure"&gt;
+    AuthBasicProvider file1 file2
+    
+    AuthType Basic
+    AuthName "Protected Area"
+    Require valid-user
+&lt;/Directory&gt;
+        </highlight>
         </example>
 
 
@@ -96,34 +92,32 @@ d'authentification</title>
 
         <example><title>V&eacute;rification aupr&egrave;s de plusieurs serveurs
 	LDAP</title>
-          &lt;AuthnProviderAlias ldap alias-ldap&gt;<br />
-          <indent>
-             AuthLDAPBindDN cn=utilisateur,o=ctx<br />
-             AuthLDAPBindPassword mot-de-passe<br />
-             AuthLDAPURL ldap://serveur.ldap/o=ctx<br />
-          </indent>
-          &lt;/AuthnProviderAlias&gt;<br /><br />
-          &lt;AuthnProviderAlias ldap autre-alias-ldap&gt;<br />
-          <indent>
-             AuthLDAPBindDN cn=autre-utilisateur,o=dev<br />
-             AuthLDAPBindPassword autre-mot-de-passe<br />
-             AuthLDAPURL ldap://autre.serveur.ldap/o=dev?cn<br />
-          </indent>
-          &lt;/AuthnProviderAlias&gt;<br /><br />
+          <highlight language="config">
+&lt;AuthnProviderAlias ldap ldap-alias1&gt;
+    AuthLDAPBindDN "cn=youruser,o=ctx"
+    AuthLDAPBindPassword yourpassword
+    AuthLDAPURL "ldap://ldap.host/o=ctx"
+    &lt;/AuthnProviderAlias&gt;
+    &lt;AuthnProviderAlias ldap ldap-other-alias&gt;
+    AuthLDAPBindDN "cn=yourotheruser,o=dev"
+    AuthLDAPBindPassword yourotherpassword
+    AuthLDAPURL "ldap://other.ldap.host/o=dev?cn"
+&lt;/AuthnProviderAlias&gt;
 
-          Alias /secure /webpages/secure<br />
-          &lt;Directory /webpages/secure&gt;<br />
-          <indent>
-             Order deny,allow<br />
-             Allow from all<br /><br />
-
-             AuthBasicProvider autre-alias-ldap alias-ldap <br /><br />
-
-             AuthType Basic<br />Exemple
-             AuthName Zone_prot&eacute;g&eacute;e_par_LDAP<br />
-             Require valid-user<br />
-          </indent>
-          &lt;/Directory&gt;<br />
+Alias "/secure" "/webpages/secure"
+&lt;Directory "/webpages/secure"&gt;
+    
+    AuthBasicProvider ldap-other-alias  ldap-alias1
+    
+    AuthType Basic
+    AuthName LDAP_Protected Place
+    Require valid-user
+    # Notez que Require ldap-* ne fonctionnerait pas ici, car
+    # AuthnProviderAlias ne fournit pas de configuration pour les
+    # fournisseurs d'autorisation impl&eacute;ment&eacute;s dans le m&ecirc;me module que le
+    # fournisseur d'authentification.
+&lt;/Directory&gt;
+          </highlight>
         </example>
     </section>
 
@@ -134,7 +128,7 @@ d'authentification</title>
 <name>AuthName</name>
 <description>L'identifiant de l'autorisation &agrave; utiliser avec
 l'authentification HTTP</description>
-<syntax>AuthName <var>domaine d'autorisation</var></syntax>
+<syntax>AuthName <var>identifiant d'autorisation</var></syntax>
 <contextlist><context>directory</context><context>.htaccess</context>
 </contextlist>
 <override>AuthConfig</override>
@@ -155,13 +149,24 @@ l'authentification HTTP</description>
 
    <p>Par exemple :</p>
 
-   <example>
+   <highlight language="config">
      AuthName "Top Secret"
-   </example>
+   </highlight>
 
     <p>La cha&icirc;ne fournie comme argument &agrave; <code>AuthName</code>
     appara&icirc;tra dans la bo&icirc;te de dialogue d'authentification pour la
     plupart des navigateurs.</p>
+
+    <p>Il est possible de d&eacute;finir cette directive en utilisant la <a
+    href="../expr.html">syntaxe des expressions</a> pour
+    sp&eacute;cifier l'identifiant d'autorisation de mani&egrave;re dynamique.</p>
+
+   <p>Exemple :</p>
+
+   <highlight language="config">
+     AuthName "%{HTTP_HOST}"
+   </highlight>
+
 </usage>
 <seealso><a
     href="../howto/auth.html">Authentification, autorisation et contr&ocirc;le
@@ -205,24 +210,25 @@ l'authentification HTTP</description>
     l'exemple suivant, les clients peuvent acc&eacute;der au r&eacute;pertoire
     <code>/www/docs/public</code> sans devoir s'authentifier :</p>
 
-    <example>
-        &lt;Directory /www/docs&gt;
-        <indent>
-            AuthType Basic<br />
-            AuthName Documents<br />
-            AuthBasicProvider file<br />
-            AuthUserFile /usr/local/apache/passwd/passwords<br />
-            Require valid-user
-        </indent>
-        &lt;/Directory&gt;<br />
-        <br />
-        &lt;Directory /www/docs/public&gt;
-        <indent>
-            AuthType None<br />
-            Require all granted
-        </indent>
-        &lt;/Directory&gt;
-    </example>
+    <highlight language="config">
+&lt;Directory "/www/docs"&gt;
+    AuthType Basic
+    AuthName Documents
+    AuthBasicProvider file
+    AuthUserFile "/usr/local/apache/passwd/passwords"
+    Require valid-user
+&lt;/Directory&gt;
+
+&lt;Directory "/www/docs/public"&gt;
+    AuthType None
+    Require all granted
+&lt;/Directory&gt;
+    </highlight>
+
+    <p>A partir de la version 2.4.13, il est possible de d&eacute;finir cette
+    directive en utilisant la <a
+    href="../expr.html">syntaxe des expressions</a> pour
+    sp&eacute;cifier le type d'authentification de mani&egrave;re dynamique.</p>
 
     <note>Veuillez noter que, lorsque l'authentification n'est pas
     activ&eacute;e, les clients qui se sont d&eacute;j&agrave; authentifi&eacute;s pour une autre
@@ -253,6 +259,10 @@ l'alias sp&eacute;cifi&eacute;</description>
     l'alias sp&eacute;cifi&eacute; &agrave; l'aide des directives <directive
     module="mod_auth_basic">AuthBasicProvider</directive> ou <directive
     module="mod_auth_digest">AuthDigestProvider</directive>.</p>
+
+    <note>Cette directive n'a aucun influence sur le processus
+    d'autorisation, m&ecirc;me pour les modules qui fournissent &agrave; la fois
+    l'authentification et l'autorisation.</note>
 
 </usage>
 </directivesynopsis>

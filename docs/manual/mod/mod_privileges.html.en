@@ -1,20 +1,25 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><!--
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="Content-Type" />
+<!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>mod_privileges - Apache HTTP Server</title>
+<title>mod_privileges - Apache HTTP Server Version 2.5</title>
 <link href="../style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="../style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
-<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" />
+<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="../style/css/prettify.css" />
+<script src="../style/scripts/prettify.min.js" type="text/javascript">
+</script>
+
 <link href="../images/favicon.ico" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
-<img alt="" src="../images/feather.gif" /></div>
+<img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Modules</a></div>
@@ -27,13 +32,14 @@
 under different user IDs.</td></tr>
 <tr><th><a href="module-dict.html#Status">Status:</a></th><td>Experimental</td></tr>
 <tr><th><a href="module-dict.html#ModuleIdentifier">Module Identifier:</a></th><td>privileges_module</td></tr>
+<tr><th><a href="module-dict.html#SourceFile">Source File:</a></th><td>mod_privileges.c</td></tr>
 <tr><th><a href="module-dict.html#Compatibility">Compatibility:</a></th><td>Available in Apache 2.3 and up, on Solaris 10 and
 OpenSolaris platforms</td></tr></table>
 <h3>Summary</h3>
 
 <p>This module enables different Virtual Hosts to run with different
 Unix <var>User</var> and <var>Group</var> IDs, and with different
-<a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  In particular, it offers a solution to the
+<a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  In particular, it offers a solution to the
 problem of privilege separation between different Virtual Hosts, first
 promised by the abandoned perchild MPM.  It also offers other security
 enhancements.</p>
@@ -56,7 +62,10 @@ applications implemented in C as apache modules where privilege
 separation is an issue.</p>
 
 </div>
-<div id="quickview"><h3 class="directives">Directives</h3>
+<div id="quickview"><h3>Topics</h3>
+<ul id="topics">
+<li><img alt="" src="../images/down.gif" /> <a href="#security">Security Considerations</a></li>
+</ul><h3 class="directives">Directives</h3>
 <ul id="toc">
 <li><img alt="" src="../images/down.gif" /> <a href="#dtraceprivileges">DTracePrivileges</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#privilegesmode">PrivilegesMode</a></li>
@@ -67,10 +76,9 @@ separation is an issue.</p>
 <li><img alt="" src="../images/down.gif" /> <a href="#vhostsecure">VHostSecure</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#vhostuser">VHostUser</a></li>
 </ul>
-<h3>Topics</h3>
-<ul id="topics">
-<li><img alt="" src="../images/down.gif" /> <a href="#security">Security Considerations</a></li>
-</ul></div>
+<h3>Bugfix checklist</h3><ul class="seealso"><li><a href="https://www.apache.org/dist/httpd/CHANGES_2.4">httpd changelog</a></li><li><a href="https://bz.apache.org/bugzilla/buglist.cgi?bug_status=__open__&amp;list_id=144532&amp;product=Apache%20httpd-2&amp;query_format=specific&amp;order=changeddate%20DESC%2Cpriority%2Cbug_severity&amp;component=mod_privileges">Known issues</a></li><li><a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2&amp;component=mod_privileges">Report a bug</a></li></ul><h3>See also</h3>
+<ul class="seealso">
+<li><a href="#comments_section">Comments</a></li></ul></div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="security" id="security">Security Considerations</a></h2>
@@ -143,8 +151,8 @@ request-processing cycle.</em></p>
 non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a></code> or custom MPM).</td></tr>
 </table>
     <p>This server-wide directive determines whether Apache will run with
-    the <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> required to run
-    <a href="http://www.sun.com/bigadmin/content/dtrace/">dtrace</a>.
+    the <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> required to run
+    <a href="http://sosc-dr.sun.com/bigadmin/content/dtrace/">dtrace</a>.
     Note that <var>DTracePrivileges On</var> will not in itself
     activate DTrace, but <var>DTracePrivileges Off</var> will prevent
     it working.</p>
@@ -156,6 +164,7 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
 <tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Trade off processing speed and efficiency vs security against
 malicious privileges-aware code.</td></tr>
 <tr><th><a href="directive-dict.html#Syntax">Syntax:</a></th><td><code>PrivilegesMode FAST|SECURE|SELECTIVE</code></td></tr>
+<tr><th><a href="directive-dict.html#Default">Default:</a></th><td><code>PrivilegesMode FAST</code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Context:</a></th><td>server config, virtual host, directory</td></tr>
 <tr><th><a href="directive-dict.html#Status">Status:</a></th><td>Experimental</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_privileges</td></tr>
@@ -205,14 +214,14 @@ subprocesses, and the privileges available to subprocesses.</td></tr>
 non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a></code> or custom MPM).</td></tr>
 </table>
     <p>Determines whether the virtual host is allowed to run fork and exec,
-    the <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> required to run subprocesses.  If this is set to
+    the <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> required to run subprocesses.  If this is set to
     <var>Off</var> the virtualhost is denied the privileges and will not
     be able to run traditional CGI programs or scripts under the traditional
     <code class="module"><a href="../mod/mod_cgi.html">mod_cgi</a></code>, nor similar external programs such as those
     created by <code class="module"><a href="../mod/mod_ext_filter.html">mod_ext_filter</a></code> or
     <code class="directive"><a href="../mod/mod_rewrite.html#rewritemap">RewriteMap</a></code> <var>prog</var>.
     Note that it does not prevent CGI programs running under alternative
-    process and security models such as <a href="http://fastcgi.coremail.cn">mod_fcgid</a>, which is a recommended solution in Solaris.</p>
+    process and security models such as <a href="https://httpd.apache.org/mod_fcgid/">mod_fcgid</a>, which is a recommended solution in Solaris.</p>
     <p>If set to <var>On</var> or <var>Secure</var>, the virtual host
     is permitted to run external programs and scripts as above.
     Setting <code class="directive">VHostCGIMode</code> <var>Secure</var> has
@@ -235,7 +244,7 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
 and when <code class="module"><a href="../mod/mod_privileges.html">mod_privileges</a></code> is compiled with the
 <var>BIG_SECURITY_HOLE</var> compile-time option.</td></tr>
 </table>
-    <p><code class="directive">VHostCGIPrivs</code> can be used to assign arbitrary <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> to subprocesses created by a virtual host, as discussed
+    <p><code class="directive">VHostCGIPrivs</code> can be used to assign arbitrary <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> to subprocesses created by a virtual host, as discussed
     under <code class="directive">VHostCGIMode</code>.  Each <var>privilege-name</var>
     is the name of a Solaris privilege, such as <var>file_setid</var>
     or <var>sys_nfs</var>.</p>
@@ -268,7 +277,7 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
     <p>The <code class="directive">VHostGroup</code> directive sets the Unix group
     under which the server will process requests to a virtualhost.
     The group is set before the request is processed and reset afterwards
-    using <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  Since the setting applies to the
+    using <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  Since the setting applies to the
     <em>process</em>, this is not compatible with threaded MPMs.</p>
     <p><var>Unix-group</var> is one of:</p>
     <dl>
@@ -305,7 +314,7 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
 and when <code class="module"><a href="../mod/mod_privileges.html">mod_privileges</a></code> is compiled with the
 <var>BIG_SECURITY_HOLE</var> compile-time option.</td></tr>
 </table>
-    <p><code class="directive">VHostPrivs</code> can be used to assign arbitrary <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> to a virtual host.  Each <var>privilege-name</var>
+    <p><code class="directive">VHostPrivs</code> can be used to assign arbitrary <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">privileges</a> to a virtual host.  Each <var>privilege-name</var>
     is the name of a Solaris privilege, such as <var>file_setid</var>
     or <var>sys_nfs</var>.</p>
 
@@ -335,7 +344,7 @@ for the virtualhost.</td></tr>
 non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a></code> or custom MPM).</td></tr>
 </table>
     <p>Determines whether the virtual host processes requests with
-    security enhanced by removal of <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">Privileges</a> that are rarely needed in a webserver, but which are
+    security enhanced by removal of <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">Privileges</a> that are rarely needed in a webserver, but which are
     available by default to a normal Unix user and may therefore
     be required by modules and applications.  It is recommended that
     you retain the default (On) unless it prevents an application running.
@@ -363,7 +372,7 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
     <p>The <code class="directive">VHostUser</code> directive sets the Unix userid
     under which the server will process requests to a virtualhost.
     The userid is set before the request is processed and reset afterwards
-    using <a href="http://www.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  Since the setting applies to the
+    using <a href="http://sosc-dr.sun.com/bigadmin/features/articles/least_privilege.jsp">Solaris Privileges</a>.  Since the setting applies to the
     <em>process</em>, this is not compatible with threaded MPMs.</p>
     <p><var>Unix-userid</var> is one of:</p>
     <dl>
@@ -389,7 +398,28 @@ non-threaded MPMs (<code class="module"><a href="../mod/prefork.html">prefork</a
 </div>
 <div class="bottomlang">
 <p><span>Available Languages: </span><a href="../en/mod/mod_privileges.html" title="English">&nbsp;en&nbsp;</a></p>
-</div><div id="footer">
-<p class="apache">Copyright 2012 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div>
+</div><div class="top"><a href="#page-header"><img src="../images/up.gif" alt="top" /></a></div><div class="section"><h2><a id="comments_section" name="comments_section">Comments</a></h2><div class="warning"><strong>Notice:</strong><br />This is not a Q&amp;A section. Comments placed here should be pointed towards suggestions on improving the documentation or server, and may be removed again by our moderators if they are either implemented or considered invalid/off-topic. Questions on how to manage the Apache HTTP Server should be directed at either our IRC channel, #httpd, on Freenode, or sent to our <a href="http://httpd.apache.org/lists.html">mailing lists</a>.</div>
+<script type="text/javascript"><!--//--><![CDATA[//><!--
+var comments_shortname = 'httpd';
+var comments_identifier = 'http://httpd.apache.org/docs/trunk/mod/mod_privileges.html';
+(function(w, d) {
+    if (w.location.hostname.toLowerCase() == "httpd.apache.org") {
+        d.write('<div id="comments_thread"><\/div>');
+        var s = d.createElement('script');
+        s.type = 'text/javascript';
+        s.async = true;
+        s.src = 'https://comments.apache.org/show_comments.lua?site=' + comments_shortname + '&page=' + comments_identifier;
+        (d.getElementsByTagName('head')[0] || d.getElementsByTagName('body')[0]).appendChild(s);
+    }
+    else {
+        d.write('<div id="comments_thread">Comments are disabled for this page at the moment.<\/div>');
+    }
+})(window, document);
+//--><!]]></script></div><div id="footer">
+<p class="apache">Copyright 2016 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+if (typeof(prettyPrint) !== 'undefined') {
+    prettyPrint();
+}
+//--><!]]></script>
 </body></html>

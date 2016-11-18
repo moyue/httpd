@@ -151,40 +151,40 @@ static int copy_headers_in(void *vbaton, const char *key, const char *value)
     switch (key[0]) {
     case 'a':
     case 'A':
-        if (strcasecmp("Accept-Encoding", key) == 0) {
+        if (ap_cstr_casecmp("Accept-Encoding", key) == 0) {
             return 0;
         }
         break;
     case 'c':
     case 'C':
-        if (strcasecmp("Connection", key) == 0) {
+        if (ap_cstr_casecmp("Connection", key) == 0) {
             return 0;
         }
         break;
     case 'h':
     case 'H':
-        if (strcasecmp("Host", key) == 0) {
+        if (ap_cstr_casecmp("Host", key) == 0) {
             return 0;
         }
         break;
     case 'k':
     case 'K':
-        if (strcasecmp("Keep-Alive", key) == 0) {
+        if (ap_cstr_casecmp("Keep-Alive", key) == 0) {
             return 0;
         }
         break;
     case 't':
     case 'T':
-        if (strcasecmp("TE", key) == 0) {
+        if (ap_cstr_casecmp("TE", key) == 0) {
             return 0;
         }
-        if (strcasecmp("Trailer", key) == 0) {
+        if (ap_cstr_casecmp("Trailer", key) == 0) {
             return 0;
         }
         break;
     case 'u':
     case 'U':
-        if (strcasecmp("Upgrade", key) == 0) {
+        if (ap_cstr_casecmp("Upgrade", key) == 0) {
             return 0;
         }
         break;
@@ -205,27 +205,27 @@ static int copy_headers_out(void *vbaton, const char *key, const char *value)
     switch (key[0]) {
     case 'c':
     case 'C':
-        if (strcasecmp("Content-Type", key) == 0) {
+        if (ap_cstr_casecmp("Content-Type", key) == 0) {
             ap_set_content_type(ctx->r, value);
             done = 1;
             break;
         }
-        else if (strcasecmp("Connection", key) == 0) {
+        else if (ap_cstr_casecmp("Connection", key) == 0) {
             done = 1;
             break;
         }
-        else if (strcasecmp("Content-Encoding", key) == 0) {
+        else if (ap_cstr_casecmp("Content-Encoding", key) == 0) {
             done = 1;
             break;
         }
-        else if (strcasecmp("Content-Length", key) == 0) {
+        else if (ap_cstr_casecmp("Content-Length", key) == 0) {
             done = 1;
             break;
         }
         break;
     case 't':
     case 'T':
-        if (strcasecmp("Transfer-Encoding", key) == 0) {
+        if (ap_cstr_casecmp("Transfer-Encoding", key) == 0) {
             done = 1;
             break;
         }
@@ -512,7 +512,7 @@ static int drive_serf(request_rec *r, serf_config_t *conf)
     baton->done_headers = 0;
     baton->keep_reading = 1;
 
-    if (strcasecmp(conf->url.scheme, "https") == 0) {
+    if (ap_cstr_casecmp(conf->url.scheme, "https") == 0) {
         baton->want_ssl = 1;
     }
     else {
@@ -539,6 +539,7 @@ static int drive_serf(request_rec *r, serf_config_t *conf)
 
         do {
             len = sizeof(buf);
+            /* FIXME: ap_get_client_block() returns long, not apr_status_t */
             rv = ap_get_client_block(baton->r, buf, len);
             if (rv > 0) {
                 rv = apr_file_write_full(fp, buf, rv, NULL);
@@ -699,7 +700,7 @@ static const char *add_cluster(cmd_parms *cmd, void *d,
 
         if (x && strlen(p) > 1) {
             apr_table_addn(cluster->params,
-                           apr_pstrndup(cmd->pool, p, x-p),
+                           apr_pstrmemdup(cmd->pool, p, x-p),
                            x+1);
         }
         else {
@@ -788,7 +789,7 @@ static const char* hb_config_check(void *baton,
     hb_table_baton_t b;
 
     if (apr_is_empty_table(params)) {
-        return "SerfCluster Heartbeat requires a path to the heartbat information.";
+        return "SerfCluster Heartbeat requires a path to the heartbeat information.";
     }
 
     b.p = cmd->pool;
@@ -883,7 +884,7 @@ static apr_status_t read_heartbeats(const char *path,
                 continue;
             }
 
-            ip = apr_pstrndup(pool, buf, t - buf);
+            ip = apr_pstrmemdup(pool, buf, t - buf);
             t++;
             server = apr_pcalloc(pool, sizeof(hb_server_t));
             server->ip = ip;

@@ -95,10 +95,11 @@ extern "C" {
 #define DEFAULT_X_CACHE         0
 #define DEFAULT_X_CACHE_DETAIL  0
 #define DEFAULT_CACHE_STALE_ON_ERROR 1
-#define DEFAULT_CACHE_LOCKPATH "/mod_cache-lock"
+#define DEFAULT_CACHE_LOCKPATH "mod_cache-lock"
 #define CACHE_LOCKNAME_KEY "mod_cache-lockname"
 #define CACHE_LOCKFILE_KEY "mod_cache-lockfile"
 #define CACHE_CTX_KEY "mod_cache-ctx"
+#define CACHE_SEPARATOR ", \t"
 
 /**
  * cache_util.c
@@ -238,7 +239,16 @@ typedef struct {
  * @param r request_rec
  * @return 0 ==> cache object may not be served, 1 ==> cache object may be served
  */
-CACHE_DECLARE(int) ap_cache_check_allowed(cache_request_rec *cache, request_rec *r);
+int ap_cache_check_no_cache(cache_request_rec *cache, request_rec *r);
+
+/**
+ * Check the whether the request allows a cached object to be stored as per RFC2616
+ * section 14.9.2 (What May be Stored by Caches)
+ * @param cache cache_request_rec
+ * @param r request_rec
+ * @return 0 ==> cache object may not be served, 1 ==> cache object may be served
+ */
+int ap_cache_check_no_store(cache_request_rec *cache, request_rec *r);
 
 /**
  * Check the freshness of the cache object per RFC2616 section 13.2 (Expiration Model)
@@ -254,7 +264,7 @@ int cache_check_freshness(cache_handle_t *h, cache_request_rec *cache,
  * Try obtain a cache wide lock on the given cache key.
  *
  * If we return APR_SUCCESS, we obtained the lock, and we are clear to
- * proceed to the backend. If we return APR_EEXISTS, the the lock is
+ * proceed to the backend. If we return APR_EEXISTS, then the lock is
  * already locked, someone else has gone to refresh the backend data
  * already, so we must return stale data with a warning in the mean
  * time. If we return anything else, then something has gone pear
@@ -290,7 +300,32 @@ apr_status_t cache_remove_lock(cache_server_conf *conf,
         cache_request_rec *cache, request_rec *r, apr_bucket_brigade *bb);
 
 cache_provider_list *cache_get_providers(request_rec *r,
-        cache_server_conf *conf, apr_uri_t uri);
+                                         cache_server_conf *conf);
+
+/**
+ * Get a value from a table, where the table may contain multiple
+ * values for a given key.
+ *
+ * When the table contains a single value, that value is returned
+ * unchanged.
+ *
+ * When the table contains two or more values for a key, all values
+ * for the key are returned, separated by commas.
+ */
+const char *cache_table_getm(apr_pool_t *p, const apr_table_t *t,
+        const char *key);
+
+/**
+ * String tokenizer that ignores separator characters within quoted strings
+ * and escaped characters, as per RFC2616 section 2.2.
+ */
+char *cache_strqtok(char *str, const char *sep, char **last);
+
+/**
+ * Merge err_headers_out into headers_out and add request's Content-Type and
+ * Content-Encoding if available.
+ */
+apr_table_t *cache_merge_headers_out(request_rec *r);
 
 #ifdef __cplusplus
 }

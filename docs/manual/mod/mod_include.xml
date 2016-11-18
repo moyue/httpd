@@ -27,8 +27,6 @@
 <status>Base</status>
 <sourcefile>mod_include.c</sourcefile>
 <identifier>include_module</identifier>
-<compatibility>Implemented as an output filter since Apache
-2.0</compatibility>
 
 <summary>
     <p>This module provides a filter which will process files
@@ -53,10 +51,10 @@
     parse them and assign the resulting document the mime type of
     <code>text/html</code>:</p>
 
-    <example>
-      AddType text/html .shtml<br />
-      AddOutputFilter INCLUDES .shtml
-    </example>
+    <highlight language="config">
+AddType text/html .shtml
+AddOutputFilter INCLUDES .shtml
+    </highlight>
 
     <p>The following directive must be given for the directories
     containing the shtml files (typically in a
@@ -65,9 +63,9 @@
     <directive module="core">AllowOverride</directive> <code>Options</code>
     is set):</p>
 
-    <example>
-      Options +Includes
-    </example>
+    <highlight language="config">
+Options +Includes
+    </highlight>
 
     <p>For backwards compatibility, the <code>server-parsed</code>
     <a href="../handler.html">handler</a> also activates the
@@ -91,7 +89,7 @@
     configure the server to accept requests with <code>PATH_INFO</code>.</p>
 </section> <!-- /pathinfo -->
 
-<section id="elements"><title>Basic Elements</title>
+<section id="elements"><title>Available Elements</title>
     <p>The document is parsed as an HTML document, with special
     commands embedded as SGML comments. A command has the syntax: </p>
 
@@ -112,6 +110,8 @@
 
     <table border="1">
     <tr><th>Element</th><th>Description</th></tr>
+    <tr><td><code><a href="#element.comment">comment</a></code></td>
+        <td>SSI comment</td></tr>
     <tr><td><code><a href="#element.config">config</a></code></td>
         <td>configure output formats</td></tr>
     <tr><td><code><a href="#element.echo">echo</a></code></td>
@@ -136,34 +136,67 @@
     <module>mod_cgi</module>, and will only be available if this
     module is loaded.</p>
 
+    <section id="element.comment"><title>The comment Element</title>
+      <p>This command doesn't output anything. Its only use is to
+      add comments within a file. These comments are not printed.</p>
+
+      <p>This syntax is available in version 2.5 and later.</p>
+
+      <example>
+      &lt;!--#comment Blah Blah Blah --&gt;
+      </example>
+    </section> <!-- /comment -->
+
     <section id="element.config"><title>The config Element</title>
       <p>This command controls various aspects of the parsing. The
       valid attributes are:</p>
 
       <dl>
       <dt><code>echomsg</code> (<em>Apache 2.1 and later</em>)</dt>
-      <dd>The value is a message that is sent back to the
+      <dd><p>The value is a message that is sent back to the
       client if the <code><a href="#element.echo">echo</a></code> element
       attempts to echo an undefined variable. This overrides any <directive
-      module="mod_include">SSIUndefinedEcho</directive> directives.</dd>
+      module="mod_include">SSIUndefinedEcho</directive> directives.</p>
+
+      <example>
+        &lt;!--#config echomsg="[Value Undefined]" --&gt;
+      </example>
+      </dd>
 
       <dt><code>errmsg</code></dt>
-      <dd>The value is a message that is sent back to the
+      <dd><p>The value is a message that is sent back to the
       client if an error occurs while parsing the
       document. This overrides any <directive
-      module="mod_include">SSIErrorMsg</directive> directives.</dd>
+      module="mod_include">SSIErrorMsg</directive> directives.</p>
+
+      <example>
+       &lt;!--#config errmsg="[Oops, something broke.]" --&gt;
+      </example>
+      </dd>
 
       <dt><code>sizefmt</code></dt>
-      <dd>The value sets the format to be used when displaying
+      <dd><p>The value sets the format to be used when displaying
       the size of a file. Valid values are <code>bytes</code>
       for a count in bytes, or <code>abbrev</code> for a count
       in Kb or Mb as appropriate, for example a size of 1024 bytes
-      will be printed as "1K".</dd>
+      will be printed as "1K".</p>
+
+      <example>
+      &lt;!--#config sizefmt="abbrev" --&gt;
+      </example>
+
+      </dd>
 
       <dt><code>timefmt</code></dt>
-      <dd>The value is a string to be used by the
+      <dd><p>The value is a string to be used by the
       <code>strftime(3)</code> library routine when printing
-      dates.</dd>
+      dates.</p>
+
+      <example>
+      &lt;!--#config timefmt=""%R, %B %d, %Y"" --&gt;
+      </example>
+
+      </dd>
       </dl>
     </section> <!-- /config -->
 
@@ -225,6 +258,10 @@
         In order to avoid cross-site scripting issues, you should
         <em>always</em> encode user supplied data.
       </note>
+
+      <example><title>Example</title>
+        &lt;!--#echo encoding="entity" var="QUERY_STRING" --&gt;
+      </example>
       </dd>
       </dl>
     </section> <!-- /echo -->
@@ -308,7 +345,18 @@
       <dl>
       <dt><code>file</code></dt>
       <dd>The value is a path relative to the directory
-      containing the current document being parsed.</dd>
+      containing the current document being parsed.
+
+    <example>
+        This file is &lt;!--#fsize file="mod_include.html" --&gt; bytes.
+    </example>
+
+    The value of <code>file</code> cannot start with a slash
+    (<code>/</code>), nor can it contain <code>../</code> so as to
+    refer to a file above the current directory or outside of the
+    document root. Attempting to so will result in the error message:
+    <code>The given path was above the root path</code>.
+      </dd>
 
       <dt><code>virtual</code></dt>
       <dd>The value is a (%-encoded) URL-path. If it does not begin with
@@ -316,6 +364,14 @@
       Note, that this does <em>not</em> print the size of any CGI output,
       but the size of the CGI script itself.</dd>
       </dl>
+
+    <example>
+        This file is &lt;!--#fsize virtual="/docs/mod/mod_include.html" --&gt; bytes.
+    </example>
+
+      <p>Note that in many cases these two are exactly the same thing.
+      However, the <code>file</code> attribute doesn't respect URL-space
+      aliases.</p>
     </section> <!-- /fsize -->
 
     <section id="element.flastmod"><title>The flastmod Element</title>
@@ -406,13 +462,15 @@
     </section> <!-- /include -->
 
     <section id="element.printenv"><title>The printenv Element</title>
-      <p>This prints out a listing of all existing variables and
+      <p>This prints out a plain text listing of all existing variables and
       their values. Special characters are entity encoded (see the <code><a
       href="#element.echo">echo</a></code> element for details)
       before being output. There are no attributes.</p>
 
       <example><title>Example</title>
-        &lt;!--#printenv --&gt;
+        &lt;pre&gt;
+          &lt;!--#printenv --&gt;
+        &lt;/pre&gt;
       </example>
     </section> <!-- /printenv -->
 
@@ -480,6 +538,16 @@
       <dt><code>DATE_LOCAL</code></dt>
       <dd>The current date in the local time zone.</dd>
 
+      <dt><code>DOCUMENT_ARGS</code></dt>
+      <dd>This variable contains the query string of the active SSI
+      document, or the empty string if a query string is not
+      included.  For subrequests invoked through the
+      <code>include</code> SSI directive, <code>QUERY_STRING</code>
+      will represent the query string of the subrequest and
+      <code>DOCUMENT_ARGS</code> will represent the query string of
+      the SSI document.  (Available in Apache HTTP Server 2.4.19 and
+      later.)</dd>
+
       <dt><code>DOCUMENT_NAME</code></dt>
       <dd>The filename (excluding directories) of the document
       requested by the user.</dd>
@@ -498,10 +566,13 @@
       the user.</dd>
 
       <dt><code>QUERY_STRING_UNESCAPED</code></dt>
-      <dd>If a query string is present, this variable contains the
-      (%-decoded) query string, which is <em>escaped</em> for shell
-      usage (special characters like <code>&amp;</code> etc. are
-      preceded by backslashes).</dd>
+      <dd>If a query string is present in the request for the active
+      SSI document, this variable contains the (%-decoded) query
+      string, which is <em>escaped</em> for shell usage (special
+      characters like <code>&amp;</code> etc. are preceded by
+      backslashes).  It is not set if a query string is not
+      present.  Use <code>DOCUMENT_ARGS</code> if shell escaping
+      is not desired.</dd>
     </dl>
 </section>
 
@@ -514,7 +585,7 @@
     <code>include</code>, <code>echo</code>, and <code>set</code>
     directives. If <directive module="mod_include"
     >SSILegacyExprParser</directive> is set to <code>on</code>,
-    substitution also occures in the arguments to conditional operators.
+    substitution also occurs in the arguments to conditional operators.
     You can insert a literal dollar sign into the string using backslash
     quoting:</p>
 
@@ -563,7 +634,7 @@
     <p>The <code>endif</code> element ends the <code>if</code> element
     and is required.</p>
 
-    <p><var>test_condition</var> is a boolean expression tha follows the
+    <p><var>test_condition</var> is a boolean expression which follows the
     <a href="../expr.html">ap_expr</a> syntax. The syntax can be changed
     to be compatible with Apache HTTPD 2.2.x using <directive
     module="mod_include">SSILegacyExprParser</directive>.</p>
@@ -758,15 +829,14 @@
 <default>SSIEndTag &quot;--&gt;&quot;</default>
 <contextlist><context>server config</context><context>virtual host</context>
 </contextlist>
-<compatibility>Available in version 2.0.30 and later.</compatibility>
 
 <usage>
     <p>This directive changes the string that <module>mod_include</module>
     looks for to mark the end of an include element.</p>
 
-    <example><title>Example</title>
-      SSIEndTag "%&gt;"
-    </example>
+    <highlight language="config">
+SSIEndTag "%&gt;"
+    </highlight>
 
 </usage>
 <seealso><directive module="mod_include">SSIStartTag</directive></seealso>
@@ -780,15 +850,14 @@
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>All</override>
-<compatibility>Available in version 2.0.34 and later.</compatibility>
 
 <usage>
     <p>This directive changes the string that <module>mod_include</module>
     displays when a variable is not set and &quot;echoed&quot;.</p>
 
-    <example><title>Example</title>
-      SSIUndefinedEcho "&lt;!-- undef --&gt;"
-    </example>
+    <highlight language="config">
+SSIUndefinedEcho "&lt;!-- undef --&gt;"
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -802,7 +871,6 @@ directive]&quot;</default>
 <contextlist><context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>All</override>
-<compatibility>Available in version 2.0.30 and later.</compatibility>
 
 <usage>
     <p>The <directive>SSIErrorMsg</directive> directive changes the error
@@ -814,9 +882,9 @@ directive]&quot;</default>
     <p>This directive has the same effect as the <code>&lt;!--#config
     errmsg=<var>message</var> --&gt;</code> element.</p>
 
-    <example><title>Example</title>
-      SSIErrorMsg "&lt;!-- Error --&gt;"
-    </example>
+    <highlight language="config">
+SSIErrorMsg "&lt;!-- Error --&gt;"
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -827,7 +895,6 @@ directive]&quot;</default>
 <default>SSIStartTag &quot;&lt;!--#&quot;</default>
 <contextlist><context>server config</context><context>virtual host</context>
 </contextlist>
-<compatibility>Available in version 2.0.30 and later.</compatibility>
 
 <usage>
     <p>This directive changes the string that <module>mod_include</module>
@@ -837,10 +904,10 @@ directive]&quot;</default>
     output of a file each processing different commands (possibly at
     different times).</p>
 
-    <example><title>Example</title>
-      SSIStartTag "&lt;%"<br />
-      SSIEndTag   "%&gt;"
-    </example>
+    <highlight language="config">
+SSIStartTag "&lt;%"
+SSIEndTag   "%&gt;"
+    </highlight>
 
     <p>The example given above, which also specifies a matching
     <directive module="mod_include">SSIEndTag</directive>, will
@@ -864,7 +931,6 @@ displayed</description>
 <context>server config</context><context>virtual host</context>
 <context>directory</context><context>.htaccess</context></contextlist>
 <override>All</override>
-<compatibility>Available in version 2.0.30 and later.</compatibility>
 
 <usage>
 <p>This directive changes the format in which date strings are displayed
@@ -875,9 +941,9 @@ displayed</description>
     <p>This directive has the same effect as the <code>&lt;!--#config
     timefmt=<var>formatstring</var> --&gt;</code> element.</p>
 
-    <example><title>Example</title>
-      SSITimeFormat "%R, %B %d, %Y"
-    </example>
+    <highlight language="config">
+SSITimeFormat "%R, %B %d, %Y"
+    </highlight>
 
     <p>The above directive would cause times to be displayed in the
     format "22:26, June 14, 2002".</p>
@@ -890,7 +956,6 @@ displayed</description>
 <syntax>SSIETag on|off</syntax>
 <default>SSIETag off</default>
 <contextlist><context>directory</context><context>.htaccess</context></contextlist>
-<compatibility>Available in version 2.2.15 and later.</compatibility>
 
 <usage>
       <p>Under normal circumstances, a file filtered by <module>mod_include</module>
@@ -931,7 +996,6 @@ server.</description>
 <syntax>SSILastModified on|off</syntax>
 <default>SSILastModified off</default>
 <contextlist><context>directory</context><context>.htaccess</context></contextlist>
-<compatibility>Available in version 2.2.15 and later.</compatibility>
 
 <usage>
       <p>Under normal circumstances, a file filtered by <module>mod_include</module>
@@ -1034,4 +1098,3 @@ set</description>
 </directivesynopsis>
 
 </modulesynopsis>
-

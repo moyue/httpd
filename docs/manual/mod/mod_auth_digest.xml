@@ -32,7 +32,14 @@
 <summary>
     <p>This module implements HTTP Digest Authentication
     (<a href="http://www.faqs.org/rfcs/rfc2617.html">RFC2617</a>), and
-    provides a more secure alternative to <module>mod_auth_basic</module>.</p>
+    provides an alternative to <module>mod_auth_basic</module> where the
+    password is not transmitted as cleartext. However, this does
+    <strong>not</strong> lead to a significant security advantage over
+    basic authentication. On the other hand, the password storage on the
+    server is much less secure with digest authentication than with
+    basic authentication. Therefore, using basic auth and encrypting the
+    whole connection using <module>mod_ssl</module> is a much better
+    alternative.</p>
 </summary>
 
 <seealso><directive module="mod_authn_core">AuthName</directive></seealso>
@@ -42,86 +49,46 @@
 
 <section id="using"><title>Using Digest Authentication</title>
 
-    <p>To use MD5 Digest authentication, simply
-    change the normal <code>AuthType Basic</code> and
-    <directive module="mod_auth_basic">AuthBasicProvider</directive>
-    to <code>AuthType Digest</code> and
-    <directive module="mod_auth_digest">AuthDigestProvider</directive>,
-    when setting up authentication, then add a
-    <directive module="mod_auth_digest"
-    >AuthDigestDomain</directive> directive containing at least the root
-    URI(s) for this protection space.</p>
-
-    <p>Appropriate user (text) files can be created using the
-    <program>htdigest</program> tool.</p>
+    <p>To use MD5 Digest authentication, configure the location to be
+    protected as shown in the below example:</p>
 
     <example><title>Example:</title>
-      &lt;Location /private/&gt;<br />
-      <indent>
-        AuthType Digest<br />
-        AuthName "private area"<br />
-        AuthDigestDomain /private/ http://mirror.my.dom/private2/<br />
-        <br />
-        AuthDigestProvider file<br />
-        AuthUserFile /web/auth/.digest_pw<br />
-        Require valid-user<br />
-      </indent>
-      &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/private/"&gt;
+    AuthType Digest
+    AuthName "private area"
+    AuthDigestDomain "/private/" "http://mirror.my.dom/private2/"
+
+    AuthDigestProvider file
+    AuthUserFile "/web/auth/.digest_pw"
+    Require valid-user
+&lt;/Location&gt;
+      </highlight>
     </example>
 
+    <p><directive module="mod_auth_digest">AuthDigestDomain</directive>
+    should list the locations that will be protected by this
+    configuration.</p>
+
+    <p>The pasword file referenced in the <directive
+    module="mod_auth_digest">AuthUserFile</directive> directive may be
+    created and managed using the <program>htdigest</program> tool.</p>
+
+
     <note><title>Note</title>
-    <p>Digest authentication is more secure than Basic authentication,
-    but only works with supporting browsers. As of September 2004, major
-    browsers that support digest authentication include <a
-    href="http://www.w3.org/Amaya/">Amaya</a>, <a
-    href="http://konqueror.kde.org/">Konqueror</a>, <a
-    href="http://www.microsoft.com/windows/ie/">MS Internet Explorer</a>
-    for Mac OS X and Windows (although the Windows version fails when
-    used with a query string -- see "<a href="#msie" >Working with MS
-    Internet Explorer</a>" below for a workaround), <a
-    href="http://www.mozilla.org">Mozilla</a>, <a
-    href="http://channels.netscape.com/ns/browsers/download.jsp">
-    Netscape</a> 7, <a href="http://www.opera.com/">Opera</a>, and <a
-    href="http://www.apple.com/safari/">Safari</a>. <a
-    href="http://lynx.isc.org/">lynx</a> does <strong>not</strong>
-    support digest authentication. Since digest authentication is not as
-    widely implemented as basic authentication, you should use it only
-    in environments where all users will have supporting browsers.</p>
+    <p>Digest authentication was intended to be more secure than basic
+    authentication, but no longer fulfills that design goal. A
+    man-in-the-middle attacker can trivially force the browser to downgrade
+    to basic authentication. And even a passive eavesdropper can brute-force
+    the password using today's graphics hardware, because the hashing
+    algorithm used by digest authentication is too fast. Another problem is
+    that the storage of the passwords on the server is insecure. The contents
+    of a stolen htdigest file can be used directly for digest authentication.
+    Therefore using <module>mod_ssl</module> to encrypt the whole connection is
+    strongly recommended.</p>
     <p><module>mod_auth_digest</module> only works properly on platforms
       where APR supports shared memory.</p>
     </note>
-</section>
-
-<section id="msie"><title>Working with MS Internet Explorer</title>
-    <p>The Digest authentication implementation in previous Internet
-    Explorer for Windows versions (5 and 6) had issues, namely that
-    <code>GET</code> requests with a query string were not RFC compliant.
-    There are a few ways to work around this issue.</p>
-
-    <p>
-    The first way is to use <code>POST</code> requests instead of
-    <code>GET</code> requests to pass data to your program.  This method
-    is the simplest approach if your application can work with this
-    limitation.
-    </p>
-
-    <p>Since version 2.0.51 Apache also provides a workaround in the
-    <code>AuthDigestEnableQueryStringHack</code> environment variable.
-    If <code>AuthDigestEnableQueryStringHack</code> is set for the
-    request, Apache will take steps to work around the MSIE bug and
-    remove the query string from the digest comparison.  Using this
-    method would look similar to the following.</p>
-
-    <example><title>Using Digest Authentication with MSIE:</title>
-    BrowserMatch "MSIE" AuthDigestEnableQueryStringHack=On
-    </example>
-
-    <p>This workaround is not necessary for MSIE 7, though enabling it does
-    not cause any compatibility issues or significant overhead.</p>
-
-    <p>See the <directive module="mod_setenvif">BrowserMatch</directive>
-    directive for more details on conditionally setting environment
-    variables.</p>
 </section>
 
 
@@ -324,7 +291,7 @@ of clients</description>
     the amount of shared memory, that will be allocated at the server
     startup for keeping track of clients. Note that the shared memory
     segment cannot be set less than the space that is necessary for
-    tracking at least <em>one</em> client. This value is dependant on your
+    tracking at least <em>one</em> client. This value is dependent on your
     system. If you want to find out the exact value, you may simply
     set <directive>AuthDigestShmemSize</directive> to the value of
     <code>0</code> and read the error message after trying to start the
@@ -335,11 +302,11 @@ of clients</description>
     express your value as KBytes or MBytes. For example, the following
     directives are all equivalent:</p>
 
-    <example>
-      AuthDigestShmemSize 1048576<br />
-      AuthDigestShmemSize 1024K<br />
-      AuthDigestShmemSize 1M
-    </example>
+<highlight language="config">
+AuthDigestShmemSize 1048576
+AuthDigestShmemSize 1024K
+AuthDigestShmemSize 1M
+    </highlight>
 </usage>
 </directivesynopsis>
 

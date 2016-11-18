@@ -69,18 +69,20 @@ the load on backends</description>
     </ol>
     <p>A simple usage example to accelerate <module>mod_authn_dbd</module>
     using dbm as a cache engine:</p>
-    <example><pre>
-    &lt;Directory /usr/www/myhost/private&gt;
-        AuthType Basic
-        AuthName "Cached Authentication Example"
-        AuthBasicProvider socache dbd
-        AuthDBDUserPWQuery "SELECT password FROM authn WHERE user = %s"
-        AuthnCacheProvideFor dbd
-        AuthnCacheContext dbd-authn-example
-        AuthnCacheSOCache dbm
-        Require valid-user
-    &lt;/Directory&gt;
-    </pre></example>
+    <highlight language="config">
+#AuthnCacheSOCache is optional.  If specified, it is server-wide
+AuthnCacheSOCache dbm
+&lt;Directory "/usr/www/myhost/private"&gt;
+    AuthType Basic
+    AuthName "Cached Authentication Example"
+    AuthBasicProvider socache dbd
+    AuthDBDUserPWQuery "SELECT password FROM authn WHERE user = %s"
+    AuthnCacheProvideFor dbd
+    Require valid-user
+    #Optional
+    AuthnCacheContext dbd-authn-example
+&lt;/Directory&gt;
+    </highlight>
 </section>
 
 <section id="dev"><title>Cacheing with custom modules</title>
@@ -113,16 +115,19 @@ the load on backends</description>
 <directivesynopsis>
 <name>AuthnCacheSOCache</name>
 <description>Select socache backend provider to use</description>
-<syntax>AuthnCacheSOCache <var>provider-name</var></syntax>
+<syntax>AuthnCacheSOCache <var>provider-name[:provider-args]</var></syntax>
 <contextlist><context>server config</context></contextlist>
 <override>None</override>
+<compatibility>Optional provider arguments are available in
+Apache HTTP Server 2.4.7 and later</compatibility>
 
 <usage>
     <p>This is a server-wide setting to select a provider for the
-    <a href="../socache.html">shared object cache</a>.
-    Values are "dbm", "dc", "memcache", or "shmcb", each subject to the
-    appropriate module being loaded.  If not set, your platform's
-       default will be used.</p>
+    <a href="../socache.html">shared object cache</a>, followed by
+    optional arguments for that provider.
+    Some possible values for <var>provider-name</var> are "dbm", "dc",
+    "memcache", or "shmcb", each subject to the appropriate module
+    being loaded.  If not set, your platform's default will be used.</p>
 </usage>
 </directivesynopsis>
 
@@ -142,9 +147,9 @@ the load on backends</description>
     <p>For example, to cache credentials found by <module>mod_authn_dbd</module>
     or by a custom provider <var>myprovider</var>, but leave those looked
     up by lightweight providers like file or dbm lookup alone:</p>
-    <example>
-        AuthnCacheProvideFor dbd myprovider
-    </example>
+    <highlight language="config">
+AuthnCacheProvideFor dbd myprovider
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -202,4 +207,3 @@ the load on backends</description>
 </directivesynopsis>
 
 </modulesynopsis>
-

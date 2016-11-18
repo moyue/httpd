@@ -30,6 +30,7 @@
 #include "apr.h"
 #include "apr_strings.h"
 #include "apr_lib.h"
+#include "apr_md5.h"            /* for apr_password_validate */
 
 #define APR_WANT_STDIO
 #define APR_WANT_STRFUNC
@@ -62,6 +63,11 @@
 #ifdef HAVE_GRP_H
 #include <grp.h>
 #endif
+#ifdef HAVE_SYS_LOADAVG_H
+#include <sys/loadavg.h>
+#endif
+
+#include "ap_mpm.h"
 
 /* A bunch of functions in util.c scan strings looking for certain characters.
  * To make that more efficient we encode a lookup table.  The test_char_table
@@ -74,7 +80,7 @@
  * char in here and get it to work, because if char is signed then it
  * will first be sign extended.
  */
-#define TEST_CHAR(c, f)        (test_char_table[(unsigned)(c)] & (f))
+#define TEST_CHAR(c, f)        (test_char_table[(unsigned char)(c)] & (f))
 
 /* Win32/NetWare/OS2 need to check for both forward and back slashes
  * in ap_getparents() and ap_escape_url.
@@ -90,7 +96,6 @@
 /* we know core's module_index is 0 */
 #undef APLOG_MODULE_INDEX
 #define APLOG_MODULE_INDEX AP_CORE_MODULE_INDEX
-
 
 /*
  * Examine a field value (such as a media-/content-type) string and return
@@ -110,7 +115,7 @@ AP_DECLARE(char *) ap_field_noparam(apr_pool_t *p, const char *intype)
         while ((semi > intype) && apr_isspace(semi[-1])) {
             semi--;
         }
-        return apr_pstrndup(p, intype, semi - intype);
+        return apr_pstrmemdup(p, intype, semi - intype);
     }
 }
 
@@ -247,7 +252,7 @@ AP_DECLARE(int) ap_os_is_path_absolute(apr_pool_t *p, const char *dir)
 
 AP_DECLARE(int) ap_is_matchexp(const char *str)
 {
-    register int x;
+    int x;
 
     for (x = 0; str[x]; x++)
         if ((str[x] == '*') || (str[x] == '?'))
@@ -273,8 +278,10 @@ AP_DECLARE(ap_regex_t *) ap_pregcomp(apr_pool_t *p, const char *pattern,
                                      int cflags)
 {
     ap_regex_t *preg = apr_palloc(p, sizeof *preg);
-
-    if (ap_regcomp(preg, pattern, cflags)) {
+    int err = ap_regcomp(preg, pattern, cflags);
+    if (err) {
+        if (err == AP_REG_ESPACE)
+            ap_abort_on_oom();
         return NULL;
     }
 
@@ -425,7 +432,7 @@ static apr_status_t regsub_core(apr_pool_t *p, char **result,
         *result = dst = apr_palloc(p, len + 1);
     }
     else {
-        if (vb->buf && vb->strlen == AP_VARBUF_UNKNOWN)
+        if (vb->strlen == AP_VARBUF_UNKNOWN)
             vb->strlen = strlen(vb->buf);
         ap_varbuf_grow(vb, vb->strlen + len);
         dst = vb->buf + vb->strlen;
@@ -521,7 +528,7 @@ AP_DECLARE(void) ap_getparents(char *name)
     while (name[l] != '\0') {
         if (name[l] == '.' && name[l + 1] == '.' && IS_SLASH(name[l + 2])
             && (l == 0 || IS_SLASH(name[l - 1]))) {
-            register int m = l + 3, n;
+            int m = l + 3, n;
 
             l = l - 2;
             if (l >= 0) {
@@ -647,7 +654,7 @@ AP_DECLARE(char *) ap_make_dirstr_parent(apr_pool_t *p, const char *s)
 
 AP_DECLARE(int) ap_count_dirs(const char *path)
 {
-    register int x, n;
+    int x, n;
 
     for (x = 0, n = 0; path[x]; x++)
         if (path[x] == '/')
@@ -729,7 +736,7 @@ AP_DECLARE(char *) ap_getword_nulls(apr_pool_t *atrans, const char **line,
         return res;
     }
 
-    res = apr_pstrndup(atrans, *line, pos - *line);
+    res = apr_pstrmemdup(atrans, *line, pos - *line);
 
     ++pos;
 
@@ -745,7 +752,7 @@ AP_DECLARE(char *) ap_getword_nulls(apr_pool_t *atrans, const char **line,
 static char *substring_conf(apr_pool_t *p, const char *start, int len,
                             char quote)
 {
-    char *result = apr_palloc(p, len + 2);
+    char *result = apr_palloc(p, len + 1);
     char *resp = result;
     int i;
 
@@ -776,7 +783,7 @@ AP_DECLARE(char *) ap_getword_conf(apr_pool_t *p, const char **line)
     char *res;
     char quote;
 
-    while (*str && apr_isspace(*str))
+    while (apr_isspace(*str))
         ++str;
 
     if (!*str) {
@@ -808,7 +815,61 @@ AP_DECLARE(char *) ap_getword_conf(apr_pool_t *p, const char **line)
         res = substring_conf(p, str, strend - str, 0);
     }
 
-    while (*strend && apr_isspace(*strend))
+    while (apr_isspace(*strend))
+        ++strend;
+    *line = strend;
+    return res;
+}
+
+AP_DECLARE(char *) ap_getword_conf2_nc(apr_pool_t *p, char **line)
+{
+    return ap_getword_conf2(p, (const char **) line);
+}
+
+AP_DECLARE(char *) ap_getword_conf2(apr_pool_t *p, const char **line)
+{
+    const char *str = *line, *strend;
+    char *res;
+    char quote;
+    int count = 1;
+
+    while (apr_isspace(*str))
+        ++str;
+
+    if (!*str) {
+        *line = str;
+        return "";
+    }
+
+    if ((quote = *str) == '"' || quote == '\'')
+        return ap_getword_conf(p, line);
+
+    if (quote == '{') {
+        strend = str + 1;
+        while (*strend) {
+            if (*strend == '}' && !--count)
+                break;
+            if (*strend == '{')
+                ++count;
+            if (*strend == '\\' && strend[1] && strend[1] == '\\') {
+                ++strend;
+            }
+            ++strend;
+        }
+        res = substring_conf(p, str + 1, strend - str - 1, 0);
+
+        if (*strend == '}')
+            ++strend;
+    }
+    else {
+        strend = str;
+        while (*strend && !apr_isspace(*strend))
+            ++strend;
+
+        res = substring_conf(p, str, strend - str, 0);
+    }
+
+    while (apr_isspace(*strend))
         ++strend;
     *line = strend;
     return res;
@@ -874,7 +935,7 @@ AP_DECLARE(apr_status_t) ap_pcfg_openfile(ap_configfile_t **ret_cfg,
 
     if (finfo.filetype != APR_REG &&
 #if defined(WIN32) || defined(OS2) || defined(NETWARE)
-        strcasecmp(apr_filepath_name_get(name), "nul") != 0) {
+        ap_cstr_casecmp(apr_filepath_name_get(name), "nul") != 0) {
 #else
         strcmp(name, "/dev/null") != 0) {
 #endif /* WIN32 || OS2 */
@@ -949,32 +1010,34 @@ AP_DECLARE(apr_status_t) ap_cfg_getc(char *ch, ap_configfile_t *cfp)
 AP_DECLARE(const char *) ap_pcfg_strerror(apr_pool_t *p, ap_configfile_t *cfp,
                                           apr_status_t rc)
 {
-    char buf[MAX_STRING_LEN];
     if (rc == APR_SUCCESS)
         return NULL;
-    return apr_psprintf(p, "Error reading %s at line %d: %s",
-                        cfp->name, cfp->line_number,
-                        rc == APR_ENOSPC ? "Line too long"
-                                         : apr_strerror(rc, buf, sizeof(buf)));
+
+    if (rc == APR_ENOSPC)
+        return apr_psprintf(p, "Error reading %s at line %d: Line too long",
+                            cfp->name, cfp->line_number);
+
+    return apr_psprintf(p, "Error reading %s at line %d: %pm",
+                        cfp->name, cfp->line_number, &rc);
 }
 
 /* Read one line from open ap_configfile_t, strip LF, increase line number */
 /* If custom handler does not define a getstr() function, read char by char */
 static apr_status_t ap_cfg_getline_core(char *buf, apr_size_t bufsize,
-                                        ap_configfile_t *cfp)
+                                        apr_size_t offset, ap_configfile_t *cfp)
 {
     apr_status_t rc;
     /* If a "get string" function is defined, use it */
     if (cfp->getstr != NULL) {
         char *cp;
-        char *cbuf = buf;
-        apr_size_t cbufsize = bufsize;
+        char *cbuf = buf + offset;
+        apr_size_t cbufsize = bufsize - offset;
 
         while (1) {
             ++cfp->line_number;
             rc = cfp->getstr(cbuf, cbufsize, cfp->param);
             if (rc == APR_EOF) {
-                if (cbuf != buf) {
+                if (cbuf != buf + offset) {
                     *cbuf = '\0';
                     break;
                 }
@@ -992,11 +1055,11 @@ static apr_status_t ap_cfg_getline_core(char *buf, apr_size_t bufsize,
              */
             cp = cbuf;
             cp += strlen(cp);
-            if (cp > cbuf && cp[-1] == LF) {
+            if (cp > buf && cp[-1] == LF) {
                 cp--;
-                if (cp > cbuf && cp[-1] == CR)
+                if (cp > buf && cp[-1] == CR)
                     cp--;
-                if (cp > cbuf && cp[-1] == '\\') {
+                if (cp > buf && cp[-1] == '\\') {
                     cp--;
                     /*
                      * line continuation requested -
@@ -1014,19 +1077,19 @@ static apr_status_t ap_cfg_getline_core(char *buf, apr_size_t bufsize,
         }
     } else {
         /* No "get string" function defined; read character by character */
-        apr_size_t i = 0;
+        apr_size_t i = offset;
 
         if (bufsize < 2) {
             /* too small, assume caller is crazy */
             return APR_EINVAL;
         }
-        buf[0] = '\0';
+        buf[offset] = '\0';
 
         while (1) {
             char c;
             rc = cfp->getch(&c, cfp->param);
             if (rc == APR_EOF) {
-                if (i > 0)
+                if (i > offset)
                     break;
                 else
                     return APR_EOF;
@@ -1044,11 +1107,11 @@ static apr_status_t ap_cfg_getline_core(char *buf, apr_size_t bufsize,
                     break;
                 }
             }
-            else if (i >= bufsize - 2) {
-                return APR_ENOSPC;
-            }
             buf[i] = c;
             ++i;
+            if (i >= bufsize - 1) {
+                return APR_ENOSPC;
+            }
         }
         buf[i] = '\0';
     }
@@ -1082,7 +1145,7 @@ static int cfg_trim_line(char *buf)
 AP_DECLARE(apr_status_t) ap_cfg_getline(char *buf, apr_size_t bufsize,
                                         ap_configfile_t *cfp)
 {
-    apr_status_t rc = ap_cfg_getline_core(buf, bufsize, cfp);
+    apr_status_t rc = ap_cfg_getline_core(buf, bufsize, 0, cfp);
     if (rc == APR_SUCCESS)
         cfg_trim_line(buf);
     return rc;
@@ -1093,12 +1156,23 @@ AP_DECLARE(apr_status_t) ap_varbuf_cfg_getline(struct ap_varbuf *vb,
                                                apr_size_t max_len)
 {
     apr_status_t rc;
+    apr_size_t new_len;
     vb->strlen = 0;
     *vb->buf = '\0';
 
+    if (vb->strlen == AP_VARBUF_UNKNOWN)
+        vb->strlen = strlen(vb->buf);
+    if (vb->avail - vb->strlen < 3) {
+        new_len = vb->avail * 2;
+        if (new_len > max_len)
+            new_len = max_len;
+        else if (new_len < 3)
+            new_len = 3;
+        ap_varbuf_grow(vb, new_len);
+    }
+
     for (;;) {
-        apr_size_t new_len;
-        rc = ap_cfg_getline_core(vb->buf + vb->strlen, vb->avail - vb->strlen, cfp);
+        rc = ap_cfg_getline_core(vb->buf, vb->avail, vb->strlen, cfp);
         if (rc == APR_ENOSPC || rc == APR_SUCCESS)
             vb->strlen += strlen(vb->buf + vb->strlen);
         if (rc != APR_ENOSPC)
@@ -1268,27 +1342,58 @@ AP_DECLARE(char *) ap_get_list_item(apr_pool_t *p, const char **field)
     return token;
 }
 
+typedef enum ap_etag_e {
+    AP_ETAG_NONE,
+    AP_ETAG_WEAK,
+    AP_ETAG_STRONG
+} ap_etag_e;
+
 /* Find an item in canonical form (lowercase, no extra spaces) within
  * an HTTP field value list.  Returns 1 if found, 0 if not found.
  * This would be much more efficient if we stored header fields as
  * an array of list items as they are received instead of a plain string.
  */
-AP_DECLARE(int) ap_find_list_item(apr_pool_t *p, const char *line,
-                                  const char *tok)
+static int find_list_item(apr_pool_t *p, const char *line,
+                                  const char *tok, ap_etag_e type)
 {
     const unsigned char *pos;
     const unsigned char *ptr = (const unsigned char *)line;
     int good = 0, addspace = 0, in_qpair = 0, in_qstr = 0, in_com = 0;
 
-    if (!line || !tok)
+    if (!line || !tok) {
         return 0;
+    }
+    if (type == AP_ETAG_STRONG && *tok != '\"') {
+        return 0;
+    }
+    if (type == AP_ETAG_WEAK) {
+        if (*tok == 'W' && (*(tok+1)) == '/' && (*(tok+2)) == '\"') {
+            tok += 2;
+        }
+        else if (*tok != '\"') {
+            return 0;
+        }
+    }
 
     do {  /* loop for each item in line's list */
 
         /* Find first non-comma, non-whitespace byte */
-
-        while (*ptr == ',' || apr_isspace(*ptr))
+        while (*ptr == ',' || apr_isspace(*ptr)) {
             ++ptr;
+        }
+
+        /* Account for strong or weak Etags, depending on our search */
+        if (type == AP_ETAG_STRONG && *ptr != '\"') {
+            break;
+        }
+        if (type == AP_ETAG_WEAK) {
+            if (*ptr == 'W' && (*(ptr+1)) == '/' && (*(ptr+2)) == '\"') {
+                ptr += 2;
+            }
+            else if (*ptr != '\"') {
+                break;
+            }
+        }
 
         if (*ptr)
             good = 1;  /* until proven otherwise for this item */
@@ -1356,7 +1461,8 @@ AP_DECLARE(int) ap_find_list_item(apr_pool_t *p, const char *line,
                                if (in_com || in_qstr)
                                    good = good && (*pos++ == *ptr);
                                else
-                                   good = good && (*pos++ == apr_tolower(*ptr));
+                                   good = good
+                                       && (apr_tolower(*pos++) == apr_tolower(*ptr));
                                addspace = 0;
                                break;
                 }
@@ -1370,6 +1476,154 @@ AP_DECLARE(int) ap_find_list_item(apr_pool_t *p, const char *line,
     return good;
 }
 
+/* Find an item in canonical form (lowercase, no extra spaces) within
+ * an HTTP field value list.  Returns 1 if found, 0 if not found.
+ * This would be much more efficient if we stored header fields as
+ * an array of list items as they are received instead of a plain string.
+ */
+AP_DECLARE(int) ap_find_list_item(apr_pool_t *p, const char *line,
+                                  const char *tok)
+{
+    return find_list_item(p, line, tok, AP_ETAG_NONE);
+}
+
+/* Find a strong Etag in canonical form (lowercase, no extra spaces) within
+ * an HTTP field value list.  Returns 1 if found, 0 if not found.
+ */
+AP_DECLARE(int) ap_find_etag_strong(apr_pool_t *p, const char *line,
+                                    const char *tok)
+{
+    return find_list_item(p, line, tok, AP_ETAG_STRONG);
+}
+
+/* Find a weak ETag in canonical form (lowercase, no extra spaces) within
+ * an HTTP field value list.  Returns 1 if found, 0 if not found.
+ */
+AP_DECLARE(int) ap_find_etag_weak(apr_pool_t *p, const char *line,
+                                  const char *tok)
+{
+    return find_list_item(p, line, tok, AP_ETAG_WEAK);
+}
+
+/* Grab a list of tokens of the format 1#token (from RFC7230) */
+AP_DECLARE(const char *) ap_parse_token_list_strict(apr_pool_t *p,
+                                                const char *str_in,
+                                                apr_array_header_t **tokens,
+                                                int skip_invalid)
+{
+    int in_leading_space = 1;
+    int in_trailing_space = 0;
+    int string_end = 0;
+    const char *tok_begin;
+    const char *cur;
+
+    if (!str_in) {
+        return NULL;
+    }
+
+    tok_begin = cur = str_in;
+
+    while (!string_end) {
+        const unsigned char c = (unsigned char)*cur;
+
+        if (!TEST_CHAR(c, T_HTTP_TOKEN_STOP)) {
+            /* Non-separator character; we are finished with leading
+             * whitespace. We must never have encountered any trailing
+             * whitespace before the delimiter (comma) */
+            in_leading_space = 0;
+            if (in_trailing_space) {
+                return "Encountered illegal whitespace in token";
+            }
+        }
+        else if (c == ' ' || c == '\t') {
+            /* "Linear whitespace" only includes ASCII CRLF, space, and tab;
+             * we can't get a CRLF since headers are split on them already,
+             * so only look for a space or a tab */
+            if (in_leading_space) {
+                /* We're still in leading whitespace */
+                ++tok_begin;
+            }
+            else {
+                /* We must be in trailing whitespace */
+                ++in_trailing_space;
+            }
+        }
+        else if (c == ',' || c == '\0') {
+            if (!in_leading_space) {
+                /* If we're out of the leading space, we know we've read some
+                 * characters of a token */
+                if (*tokens == NULL) {
+                    *tokens = apr_array_make(p, 4, sizeof(char *));
+                }
+                APR_ARRAY_PUSH(*tokens, char *) =
+                    apr_pstrmemdup((*tokens)->pool, tok_begin,
+                                   (cur - tok_begin) - in_trailing_space);
+            }
+            /* We're allowed to have null elements, just don't add them to the
+             * array */
+
+            tok_begin = cur + 1;
+            in_leading_space = 1;
+            in_trailing_space = 0;
+            string_end = (c == '\0');
+        }
+        else {
+            /* Encountered illegal separator char */
+            if (skip_invalid) {
+                /* Skip to the next separator */
+                const char *temp;
+                temp = ap_strchr_c(cur, ',');
+                if(!temp) {
+                    temp = ap_strchr_c(cur, '\0');
+                }
+
+                /* Act like we haven't seen a token so we reset */
+                cur = temp - 1;
+                in_leading_space = 1;
+                in_trailing_space = 0;
+            }
+            else {
+                return apr_psprintf(p, "Encountered illegal separator "
+                                    "'\\x%.2x'", (unsigned int)c);
+            }
+        }
+
+        ++cur;
+    }
+
+    return NULL;
+}
+
+/* Scan a string for HTTP VCHAR/obs-text characters including HT and SP
+ * (as used in header values, for example, in RFC 7230 section 3.2)
+ * returning the pointer to the first non-HT ASCII ctrl character.
+ */
+AP_DECLARE(const char *) ap_scan_http_field_content(const char *ptr)
+{
+    for ( ; !TEST_CHAR(*ptr, T_HTTP_CTRLS); ++ptr) ;
+
+    return ptr;
+}
+
+/* Scan a string for HTTP token characters, returning the pointer to
+ * the first non-token character.
+ */
+AP_DECLARE(const char *) ap_scan_http_token(const char *ptr)
+{
+    for ( ; !TEST_CHAR(*ptr, T_HTTP_TOKEN_STOP); ++ptr) ;
+
+    return ptr;
+}
+
+/* Scan a string for visible ASCII (0x21-0x7E) or obstext (0x80+)
+ * and return a pointer to the first ctrl/space character encountered.
+ */
+AP_DECLARE(const char *) ap_scan_vchar_obstext(const char *ptr)
+{
+    for ( ; TEST_CHAR(*ptr, T_VCHAR_OBSTEXT); ++ptr) ;
+
+    return ptr;
+}
 
 /* Retrieve a token, spacing over it and returning a pointer to
  * the first non-white byte afterwards.  Note that these tokens
@@ -1383,11 +1637,10 @@ AP_DECLARE(char *) ap_get_token(apr_pool_t *p, const char **accept_line,
     const char *ptr = *accept_line;
     const char *tok_start;
     char *token;
-    int tok_len;
 
     /* Find first non-white byte */
 
-    while (*ptr && apr_isspace(*ptr))
+    while (apr_isspace(*ptr))
         ++ptr;
 
     tok_start = ptr;
@@ -1404,12 +1657,11 @@ AP_DECLARE(char *) ap_get_token(apr_pool_t *p, const char **accept_line,
                     break;
     }
 
-    tok_len = ptr - tok_start;
-    token = apr_pstrndup(p, tok_start, tok_len);
+    token = apr_pstrmemdup(p, tok_start, ptr - tok_start);
 
     /* Advance accept_line pointer to the next non-white byte */
 
-    while (*ptr && apr_isspace(*ptr))
+    while (apr_isspace(*ptr))
         ++ptr;
 
     *accept_line = ptr;
@@ -1442,7 +1694,7 @@ AP_DECLARE(int) ap_find_token(apr_pool_t *p, const char *line, const char *tok)
         while (*s && !TEST_CHAR(*s, T_HTTP_TOKEN_STOP)) {
             ++s;
         }
-        if (!strncasecmp((const char *)start_token, (const char *)tok,
+        if (!ap_cstr_casecmpn((const char *)start_token, (const char *)tok,
                          s - start_token)) {
             return 1;
         }
@@ -1469,7 +1721,7 @@ AP_DECLARE(int) ap_find_last_token(apr_pool_t *p, const char *line,
         (lidx > 0 && !(apr_isspace(line[lidx - 1]) || line[lidx - 1] == ',')))
         return 0;
 
-    return (strncasecmp(&line[lidx], tok, tlen) == 0);
+    return (ap_cstr_casecmpn(&line[lidx], tok, tlen) == 0);
 }
 
 AP_DECLARE(char *) ap_escape_shell_cmd(apr_pool_t *p, const char *str)
@@ -1507,7 +1759,7 @@ AP_DECLARE(char *) ap_escape_shell_cmd(apr_pool_t *p, const char *str)
 
 static char x2c(const char *what)
 {
-    register char digit;
+    char digit;
 
 #if !APR_CHARSET_EBCDIC
     digit = ((what[0] >= 'A') ? ((what[0] & 0xdf) - 'A') + 10
@@ -1539,7 +1791,7 @@ static char x2c(const char *what)
 
 static int unescape_url(char *url, const char *forbid, const char *reserved)
 {
-    register int badesc, badpath;
+    int badesc, badpath;
     char *x, *y;
 
     badesc = 0;
@@ -1722,7 +1974,11 @@ AP_DECLARE(char *) ap_escape_path_segment(apr_pool_t *p, const char *segment)
 
 AP_DECLARE(char *) ap_os_escape_path(apr_pool_t *p, const char *path, int partial)
 {
-    char *copy = apr_palloc(p, 3 * strlen(path) + 3);
+    /* Allocate +3 for potential "./" and trailing NULL.
+     * Allocate another +1 to allow the caller to add a trailing '/' (see
+     * comment in 'ap_sub_req_lookup_dirent')
+     */
+    char *copy = apr_palloc(p, 3 * strlen(path) + 3 + 1);
     const unsigned char *s = (const unsigned char *)path;
     unsigned char *d = (unsigned char *)copy;
     unsigned c;
@@ -1831,16 +2087,33 @@ AP_DECLARE(char *) ap_escape_logitem(apr_pool_t *p, const char *str)
     char *ret;
     unsigned char *d;
     const unsigned char *s;
+    apr_size_t length, escapes = 0;
 
     if (!str) {
         return NULL;
     }
 
-    ret = apr_palloc(p, 4 * strlen(str) + 1); /* Be safe */
+    /* Compute how many characters need to be escaped */
+    s = (const unsigned char *)str;
+    for (; *s; ++s) {
+        if (TEST_CHAR(*s, T_ESCAPE_LOGITEM)) {
+            escapes++;
+        }
+    }
+    
+    /* Compute the length of the input string, including NULL */
+    length = s - (const unsigned char *)str + 1;
+    
+    /* Fast path: nothing to escape */
+    if (escapes == 0) {
+        return apr_pmemdup(p, str, length);
+    }
+    
+    /* Each escaped character needs up to 3 extra bytes (0 --> \x00) */
+    ret = apr_palloc(p, length + 3 * escapes);
     d = (unsigned char *)ret;
     s = (const unsigned char *)str;
     for (; *s; ++s) {
-
         if (TEST_CHAR(*s, T_ESCAPE_LOGITEM)) {
             *d++ = '\\';
             switch(*s) {
@@ -1940,6 +2213,18 @@ AP_DECLARE(apr_size_t) ap_escape_errorlog_item(char *dest, const char *source,
     return (d - (unsigned char *)dest);
 }
 
+AP_DECLARE(void) ap_bin2hex(const void *src, apr_size_t srclen, char *dest)
+{
+    const unsigned char *in = src;
+    apr_size_t i;
+
+    for (i = 0; i < srclen; i++) {
+        *dest++ = c2x_table[in[i] >> 4];
+        *dest++ = c2x_table[in[i] & 0xf];
+    }
+    *dest = '\0';
+}
+
 AP_DECLARE(int) ap_is_directory(apr_pool_t *p, const char *path)
 {
     apr_finfo_t finfo;
@@ -1993,11 +2278,11 @@ AP_DECLARE(char *) ap_make_full_path(apr_pool_t *a, const char *src1,
  */
 AP_DECLARE(int) ap_is_url(const char *u)
 {
-    register int x;
+    int x;
 
     for (x = 0; u[x] != ':'; x++) {
         if ((!u[x]) ||
-            ((!apr_isalpha(u[x])) && (!apr_isdigit(u[x])) &&
+            ((!apr_isalnum(u[x])) &&
              (u[x] != '+') && (u[x] != '-') && (u[x] != '.'))) {
             return 0;
         }
@@ -2393,7 +2678,7 @@ AP_DECLARE(int) ap_parse_form_data(request_rec *r, ap_filter_t *f,
 
     /* sanity check - we only support forms for now */
     ct = apr_table_get(r->headers_in, "Content-Type");
-    if (!ct || strcmp("application/x-www-form-urlencoded", ct)) {
+    if (!ct || ap_cstr_casecmpn("application/x-www-form-urlencoded", ct, 33)) {
         return ap_discard_request_body(r);
     }
 
@@ -2414,7 +2699,7 @@ AP_DECLARE(int) ap_parse_form_data(request_rec *r, ap_filter_t *f,
                                 APR_BLOCK_READ, HUGE_STRING_LEN);
         if (rv != APR_SUCCESS) {
             apr_brigade_destroy(bb);
-            return (rv == AP_FILTER_ERROR) ? rv : HTTP_BAD_REQUEST;
+            return ap_map_http_request_error(rv, HTTP_BAD_REQUEST);
         }
 
         for (bucket = APR_BRIGADE_FIRST(bb);
@@ -2583,6 +2868,8 @@ AP_DECLARE(void) ap_varbuf_grow(struct ap_varbuf *vb, apr_size_t new_len)
     struct ap_varbuf_info *new_info;
     char *new;
 
+    AP_DEBUG_ASSERT(vb->strlen == AP_VARBUF_UNKNOWN || vb->avail >= vb->strlen);
+
     if (new_len <= vb->avail)
         return;
 
@@ -2702,9 +2989,10 @@ AP_DECLARE(char *) ap_varbuf_pdup(apr_pool_t *p, struct ap_varbuf *buf,
         i++;
     }
     if (buf->avail && buf->strlen) {
+        if (buf->strlen == AP_VARBUF_UNKNOWN)
+            buf->strlen = strlen(buf->buf);
         vec[i].iov_base = (void *)buf->buf;
-        vec[i].iov_len = (buf->strlen == AP_VARBUF_UNKNOWN) ? buf->avail
-                                                            : buf->strlen;
+        vec[i].iov_len = buf->strlen;
         i++;
     }
     if (append) {
@@ -2772,3 +3060,315 @@ AP_DECLARE(void *) ap_realloc(void *ptr, size_t size)
         ap_abort_on_oom();
     return p;
 }
+
+AP_DECLARE(void) ap_get_sload(ap_sload_t *ld)
+{
+    int i, j, server_limit, thread_limit;
+    int ready = 0;
+    int busy = 0;
+    int total;
+    ap_generation_t mpm_generation;
+
+    /* preload errored fields, we overwrite */
+    ld->idle = -1;
+    ld->busy = -1;
+    ld->bytes_served = 0;
+    ld->access_count = 0;
+
+    ap_mpm_query(AP_MPMQ_GENERATION, &mpm_generation);
+    ap_mpm_query(AP_MPMQ_HARD_LIMIT_THREADS, &thread_limit);
+    ap_mpm_query(AP_MPMQ_HARD_LIMIT_DAEMONS, &server_limit);
+
+    for (i = 0; i < server_limit; i++) {
+        process_score *ps;
+        ps = ap_get_scoreboard_process(i);
+
+        for (j = 0; j < thread_limit; j++) {
+            int res;
+            worker_score *ws = NULL;
+            ws = &ap_scoreboard_image->servers[i][j];
+            res = ws->status;
+
+            if (!ps->quiescing && ps->pid) {
+                if (res == SERVER_READY && ps->generation == mpm_generation) {
+                    ready++;
+                }
+                else if (res != SERVER_DEAD &&
+                         res != SERVER_STARTING && res != SERVER_IDLE_KILL &&
+                         ps->generation == mpm_generation) {
+                    busy++;
+                }   
+            }
+
+            if (ap_extended_status && !ps->quiescing && ps->pid) {
+                if (ws->access_count != 0 
+                    || (res != SERVER_READY && res != SERVER_DEAD)) {
+                    ld->access_count += ws->access_count;
+                    ld->bytes_served += ws->bytes_served;
+                }
+            }
+        }
+    }
+    total = busy + ready;
+    if (total) {
+        ld->idle = ready * 100 / total;
+        ld->busy = busy * 100 / total;
+    }
+}
+
+AP_DECLARE(void) ap_get_loadavg(ap_loadavg_t *ld)
+{
+    /* preload errored fields, we overwrite */
+    ld->loadavg = -1.0;
+    ld->loadavg5 = -1.0;
+    ld->loadavg15 = -1.0;
+
+#if HAVE_GETLOADAVG
+    {
+        double la[3];
+        int num;
+
+        num = getloadavg(la, 3);
+        if (num > 0) {
+            ld->loadavg = (float)la[0];
+        }
+        if (num > 1) {
+            ld->loadavg5 = (float)la[1];
+        }
+        if (num > 2) {
+            ld->loadavg15 = (float)la[2];
+        }
+    }
+#endif
+}
+
+static const char * const pw_cache_note_name = "conn_cache_note";
+struct pw_cache {
+    /* varbuf contains concatenated password and hash */
+    struct ap_varbuf vb;
+    apr_size_t pwlen;
+    apr_status_t result;
+};
+
+AP_DECLARE(apr_status_t) ap_password_validate(request_rec *r,
+                                              const char *username,
+                                              const char *passwd,
+                                              const char *hash)
+{
+    struct pw_cache *cache;
+    apr_size_t hashlen;
+
+    cache = (struct pw_cache *)apr_table_get(r->connection->notes, pw_cache_note_name);
+    if (cache != NULL) {
+        if (strncmp(passwd, cache->vb.buf, cache->pwlen) == 0
+            && strcmp(hash, cache->vb.buf + cache->pwlen) == 0) {
+            return cache->result;
+        }
+        /* make ap_varbuf_grow below not copy the old data */
+        cache->vb.strlen = 0;
+    }
+    else {
+        cache = apr_palloc(r->connection->pool, sizeof(struct pw_cache));
+        ap_varbuf_init(r->connection->pool, &cache->vb, 0);
+        apr_table_setn(r->connection->notes, pw_cache_note_name, (void *)cache);
+    }
+    cache->pwlen = strlen(passwd);
+    hashlen = strlen(hash);
+    ap_varbuf_grow(&cache->vb, cache->pwlen + hashlen + 1);
+    memcpy(cache->vb.buf, passwd, cache->pwlen);
+    memcpy(cache->vb.buf + cache->pwlen, hash, hashlen + 1);
+    cache->result = apr_password_validate(passwd, hash);
+    return cache->result;
+}
+
+AP_DECLARE(char *) ap_get_exec_line(apr_pool_t *p,
+                                    const char *cmd,
+                                    const char * const * argv)
+{
+    char buf[MAX_STRING_LEN];
+    apr_procattr_t *procattr;
+    apr_proc_t *proc;
+    apr_file_t *fp;
+    apr_size_t nbytes = 1;
+    char c;
+    int k;
+
+    if (apr_procattr_create(&procattr, p) != APR_SUCCESS)
+        return NULL;
+    if (apr_procattr_io_set(procattr, APR_FULL_BLOCK, APR_FULL_BLOCK,
+                            APR_FULL_BLOCK) != APR_SUCCESS)
+        return NULL;
+    if (apr_procattr_dir_set(procattr,
+                             ap_make_dirstr_parent(p, cmd)) != APR_SUCCESS)
+        return NULL;
+    if (apr_procattr_cmdtype_set(procattr, APR_PROGRAM) != APR_SUCCESS)
+        return NULL;
+    proc = apr_pcalloc(p, sizeof(apr_proc_t));
+    if (apr_proc_create(proc, cmd, argv, NULL, procattr, p) != APR_SUCCESS)
+        return NULL;
+    fp = proc->out;
+
+    if (fp == NULL)
+        return NULL;
+    /* XXX: we are reading 1 byte at a time here */
+    for (k = 0; apr_file_read(fp, &c, &nbytes) == APR_SUCCESS
+                && nbytes == 1 && (k < MAX_STRING_LEN-1)     ; ) {
+        if (c == '\n' || c == '\r')
+            break;
+        buf[k++] = c;
+    }
+    buf[k] = '\0'; 
+    apr_file_close(fp);
+
+    return apr_pstrndup(p, buf, k);
+}
+
+AP_DECLARE(int) ap_array_str_index(const apr_array_header_t *array, 
+                                   const char *s,
+                                   int start)
+{
+    if (start >= 0) {
+        int i;
+        
+        for (i = start; i < array->nelts; i++) {
+            const char *p = APR_ARRAY_IDX(array, i, const char *);
+            if (!strcmp(p, s)) {
+                return i;
+            }
+        }
+    }
+    
+    return -1;
+}
+
+AP_DECLARE(int) ap_array_str_contains(const apr_array_header_t *array, 
+                                      const char *s)
+{
+    return (ap_array_str_index(array, s, 0) >= 0);
+}
+
+#if !APR_CHARSET_EBCDIC
+/*
+ * Our own known-fast translation table for casecmp by character.
+ * Only ASCII alpha characters 41-5A are folded to 61-7A, other
+ * octets (such as extended latin alphabetics) are never case-folded.
+ * NOTE: Other than Alpha A-Z/a-z, each code point is unique!
+ */
+static const short ucharmap[] = {
+    0x0,  0x1,  0x2,  0x3,  0x4,  0x5,  0x6,  0x7,
+    0x8,  0x9,  0xa,  0xb,  0xc,  0xd,  0xe,  0xf,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+    0x40,  'a',  'b',  'c',  'd',  'e',  'f',  'g',
+     'h',  'i',  'j',  'k',  'l',  'm',  'n',  'o',
+     'p',  'q',  'r',  's',  't',  'u',  'v',  'w',
+     'x',  'y',  'z', 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+    0x60,  'a',  'b',  'c',  'd',  'e',  'f',  'g',
+     'h',  'i',  'j',  'k',  'l',  'm',  'n',  'o',
+     'p',  'q',  'r',  's',  't',  'u',  'v',  'w',
+     'x',  'y',  'z', 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+    0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
+    0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+    0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+    0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
+    0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
+    0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
+    0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,
+    0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
+    0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf,
+    0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7,
+    0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef,
+    0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+    0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
+};
+#else /* APR_CHARSET_EBCDIC */
+/*
+ * Derived from apr-iconv/ccs/cp037.c for EBCDIC case comparison,
+ * provides unique identity of every char value (strict ISO-646
+ * conformance, arbitrary election of an ISO-8859-1 ordering, and
+ * very arbitrary control code assignments into C1 to achieve
+ * identity and a reversible mapping of code points),
+ * then folding the equivalences of ASCII 41-5A into 61-7A, 
+ * presenting comparison results in a somewhat ISO/IEC 10646
+ * (ASCII-like) order, depending on the EBCDIC code page in use.
+ *
+ * NOTE: Other than Alpha A-Z/a-z, each code point is unique!
+ */
+static const short ucharmap[] = {
+    0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F,
+    0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x10, 0x11, 0x12, 0x13, 0x9D, 0x85, 0x08, 0x87,
+    0x18, 0x19, 0x92, 0x8F, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x0A, 0x17, 0x1B,
+    0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x05, 0x06, 0x07,
+    0x90, 0x91, 0x16, 0x93, 0x94, 0x95, 0x96, 0x04,
+    0x98, 0x99, 0x9A, 0x9B, 0x14, 0x15, 0x9E, 0x1A,
+    0x20, 0xA0, 0xE2, 0xE4, 0xE0, 0xE1, 0xE3, 0xE5,
+    0xE7, 0xF1, 0xA2, 0x2E, 0x3C, 0x28, 0x2B, 0x7C,
+    0x26, 0xE9, 0xEA, 0xEB, 0xE8, 0xED, 0xEE, 0xEF,
+    0xEC, 0xDF, 0x21, 0x24, 0x2A, 0x29, 0x3B, 0xAC,
+    0x2D, 0x2F, 0xC2, 0xC4, 0xC0, 0xC1, 0xC3, 0xC5,
+    0xC7, 0xD1, 0xA6, 0x2C, 0x25, 0x5F, 0x3E, 0x3F,
+    0xF8, 0xC9, 0xCA, 0xCB, 0xC8, 0xCD, 0xCE, 0xCF,
+    0xCC, 0x60, 0x3A, 0x23, 0x40, 0x27, 0x3D, 0x22,
+    0xD8, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+    0x68, 0x69, 0xAB, 0xBB, 0xF0, 0xFD, 0xFE, 0xB1,
+    0xB0, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70,
+    0x71, 0x72, 0xAA, 0xBA, 0xE6, 0xB8, 0xC6, 0xA4,
+    0xB5, 0x7E, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
+    0x79, 0x7A, 0xA1, 0xBF, 0xD0, 0xDD, 0xDE, 0xAE,
+    0x5E, 0xA3, 0xA5, 0xB7, 0xA9, 0xA7, 0xB6, 0xBC,
+    0xBD, 0xBE, 0x5B, 0x5D, 0xAF, 0xA8, 0xB4, 0xD7,
+    0x7B, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+    0x68, 0x69, 0xAD, 0xF4, 0xF6, 0xF2, 0xF3, 0xF5,
+    0x7D, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70,
+    0x71, 0x72, 0xB9, 0xFB, 0xFC, 0xF9, 0xFA, 0xFF,
+    0x5C, 0xF7, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
+    0x79, 0x7A, 0xB2, 0xD4, 0xD6, 0xD2, 0xD3, 0xD5,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x38, 0x39, 0xB3, 0xDB, 0xDC, 0xD9, 0xDA, 0x9F
+};
+#endif
+
+AP_DECLARE(int) ap_cstr_casecmp(const char *s1, const char *s2)
+{
+    const unsigned char *str1 = (const unsigned char *)s1;
+    const unsigned char *str2 = (const unsigned char *)s2;
+    for (;;)
+    {
+        const int c1 = (int)(*str1);
+        const int c2 = (int)(*str2);
+        const int cmp = ucharmap[c1] - ucharmap[c2];
+        /* Not necessary to test for !c2, this is caught by cmp */
+        if (cmp || !c1)
+            return cmp;
+        str1++;
+        str2++;
+    }
+}
+
+AP_DECLARE(int) ap_cstr_casecmpn(const char *s1, const char *s2, apr_size_t n)
+{
+    const unsigned char *str1 = (const unsigned char *)s1;
+    const unsigned char *str2 = (const unsigned char *)s2;
+    while (n--)
+    {
+        const int c1 = (int)(*str1);
+        const int c2 = (int)(*str2);
+        const int cmp = ucharmap[c1] - ucharmap[c2];
+        /* Not necessary to test for !c2, this is caught by cmp */
+        if (cmp || !c1)
+            return cmp;
+        str1++;
+        str2++;
+    }
+    return 0;
+}
+

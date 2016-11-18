@@ -39,6 +39,14 @@
 #include "apr_file_info.h"
 #include "apr_time.h"
 #include "apr_hooks.h"
+#include "apr_reslist.h"
+
+/* Allow for Lua 5.2 backwards compatibility */
+#define LUA_COMPAT_ALL
+/* Allow for Lua 5.3 backwards compatibility */
+#define LUA_COMPAT_5_2
+#define LUA_COMPAT_5_1
+#define LUA_COMPAT_MODULE
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -47,6 +55,9 @@
 #if LUA_VERSION_NUM > 501
 /* Load mode for lua_load() */
 #define lua_load(a,b,c,d) lua_load(a,b,c,d,NULL)
+#define lua_resume(a,b)   lua_resume(a, NULL, b)
+#else
+#define lua_rawlen(L,i)   lua_objlen(L, (i))
 #endif
 
 /* Create a set of AP_LUA_DECLARE(type), AP_LUA_DECLARE_NONSTD(type) and
@@ -78,7 +89,7 @@ typedef enum {
     AP_LUA_INHERIT_UNSET        = -1,
     AP_LUA_INHERIT_NONE         =  0,
     AP_LUA_INHERIT_PARENT_FIRST =  1,
-    AP_LUA_INHERIT_PARENT_LAST  =  2,
+    AP_LUA_INHERIT_PARENT_LAST  =  2
 } ap_lua_inherit_t;
 
 /**
@@ -98,9 +109,10 @@ typedef struct
     apr_array_header_t *package_cpaths;
 
     /**
-     * mapped handlers
+     * mapped handlers/filters
      */
     apr_array_header_t *mapped_handlers;
+    apr_array_header_t *mapped_filters;
 
     apr_pool_t *pool;
 
@@ -108,30 +120,34 @@ typedef struct
      * AP_LUA_SCOPE_ONCE | AP_LUA_SCOPE_REQUEST | AP_LUA_SCOPE_CONN | AP_LUA_SCOPE_SERVER
      */
     unsigned int vm_scope;
+    unsigned int vm_min;
+    unsigned int vm_max;
 
     /* info for the hook harnesses */
     apr_hash_t *hooks;          /* <wombat_hook_info> */
 
     /* the actual directory being configured */
-    char *dir;
+    const char *dir;
   
     /* Whether Lua scripts in a sub-dir are run before parents */
     ap_lua_inherit_t inherit;
+    
+    /**
+     * AP_LUA_CACHE_NEVER | AP_LUA_CACHE_STAT | AP_LUA_CACHE_FOREVER
+     */
+    unsigned int codecache;
 
 } ap_lua_dir_cfg;
 
 typedef struct
 {
-    apr_hash_t *vm_reslists;
-    apr_thread_rwlock_t *vm_reslists_lock;
-
     /* value of the LuaRoot directive */
     const char *root_path;
 } ap_lua_server_cfg;
 
 typedef struct
 {
-    char *function_name;
+    const char *function_name;
     ap_lua_vm_spec *spec;
 } mapped_request_details;
 
@@ -144,7 +160,7 @@ typedef struct
 typedef struct
 {
     lua_State *L;
-    char *function;
+    const char *function;
 } ap_lua_filter_ctx;
 
 extern module AP_MODULE_DECLARE_DATA lua_module;
@@ -155,8 +171,9 @@ APR_DECLARE_EXTERNAL_HOOK(ap_lua, AP_LUA, int, lua_open,
 APR_DECLARE_EXTERNAL_HOOK(ap_lua, AP_LUA, int, lua_request,
                           (lua_State *L, request_rec *r))
 
-AP_LUA_DECLARE(const char *) ap_lua_ssl_val(apr_pool_t *p, server_rec *s, conn_rec *c, request_rec *r, const char *var);
+const char *ap_lua_ssl_val(apr_pool_t *p, server_rec *s, conn_rec *c,
+                           request_rec *r, const char *var);
 
-AP_LUA_DECLARE(int) ap_lua_ssl_is_https(conn_rec *c);
+int ap_lua_ssl_is_https(conn_rec *c);
 
 #endif /* !_MOD_LUA_H_ */

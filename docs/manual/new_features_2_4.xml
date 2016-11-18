@@ -34,12 +34,15 @@
   <section id="core">
     <title>Core Enhancements</title>
     <dl>
-      <dt>Loadable MPMs</dt>
-      <dd>Multiple MPMs can now be built as loadable modules at compile time.
-      The MPM of choice can be configured at run time.</dd>
+      <dt>Run-time Loadable MPMs</dt>
+      <dd>Multiple MPMs can now be <a href="mpm.html#dynamic">built
+      as loadable modules</a> at compile time.
+      The MPM of choice can be configured at run time via <directive
+      module="mod_so">LoadModule</directive> directive.</dd>
 
       <dt>Event MPM</dt>
-      <dd>The Event MPM is no longer experimental but is now fully supported.</dd>
+      <dd>The <a href="mod/event.html">Event MPM</a> is no longer experimental
+      but is now fully supported.</dd>
 
       <dt>Asynchronous support</dt>
       <dd>Better support for asynchronous read/write for supporting MPMs and
@@ -128,10 +131,10 @@
       to edit the response body with the full power of sed.</dd>
 
       <dt><module>mod_auth_form</module></dt>
-      <dd>Allows to do form-based authentication.</dd>
+      <dd>Enables form-based authentication.</dd>
 
       <dt><module>mod_session</module></dt>
-      <dd>Allows to keep session state for clients, using cookie or
+      <dd>Enables the use of session state for clients, using cookie or
       database storage.</dd>
 
       <dt><module>mod_allowmethods</module></dt>
@@ -143,7 +146,7 @@
       for configuration and small business logic functions. (Experimental)</dd>
 
       <dt><module>mod_log_debug</module></dt>
-      <dd>Allows to add customizable debug logging at different phases of the
+      <dd>Allows the addition of customizable debug logging at different phases of the
       request processing.</dd>
 
       <dt><module>mod_buffer</module></dt>
@@ -168,6 +171,19 @@
       <dd>Formerly a third-party module, this supports internationalisation
       in libxml2-based (markup-aware) filter modules.</dd>
 
+      <dt><module>mod_macro</module> (available since 2.4.5)</dt>
+      <dd>Provide macros within configuration files.</dd>
+
+      <dt><module>mod_proxy_wstunnel</module> (available since 2.4.5)</dt>
+      <dd>Support web-socket tunnels.</dd>
+
+      <dt><module>mod_authnz_fcgi</module> (available since 2.4.10)</dt>
+      <dd>Enable FastCGI authorizer applications to authenticate and/or
+      authorize clients.</dd>
+
+      <dt><module>mod_http2</module> (available since 2.4.17)</dt>
+      <dd>Support for the HTTP/2 transport layer.</dd>
+
     </dl>
   </section>
 
@@ -191,6 +207,8 @@
 
       <dd>EC keys are now supported in addition to RSA and DSA.</dd>
 
+      <dd>Support for TLS-SRP (available in 2.4.4 and later).</dd>
+
       <dt><module>mod_proxy</module></dt>
 
       <dd>The <directive module="mod_proxy">ProxyPass</directive> directive
@@ -199,7 +217,9 @@
       <directive module="core">LocationMatch</directive>
       block, and offers a significant performance advantage over the traditional
       two-parameter syntax when present in large numbers.</dd>
-  <dd>The source address used for proxy requests is now configurable.</dd>
+      <dd>The source address used for proxy requests is now configurable.</dd>
+      <dd>Support for Unix domain sockets to the backend (available in 2.4.7
+      and later).</dd>
 
       <dt><module>mod_proxy_balancer</module></dt>
 
@@ -264,7 +284,7 @@
           simplify common rewriting scenarios.</dd>
       <dd>Adds the possibility to use complex boolean expressions in <directive
           module="mod_rewrite">RewriteCond</directive>.</dd>
-      <dd>Allows to use SQL queries as <directive
+      <dd>Allows the use of SQL queries as <directive
           module="mod_rewrite">RewriteMap</directive> functions.</dd>
 
       <dt><module>mod_ldap</module>, <module>mod_authnz_ldap</module></dt>
@@ -283,6 +303,9 @@
       <dd><module>mod_info</module> can now dump the pre-parsed configuration
           to stdout during server startup.</dd>
 
+      <dt><module>mod_auth_basic</module></dt>
+      <dd>New generic mechanism to fake basic authentication (available in
+      2.4.5 and later).</dd>
 
     </dl>
   </section>
@@ -290,10 +313,10 @@
   <section id="programs">
     <title>Program Enhancements</title>
     <dl>
-        <dt>fcgistarter</dt>
-        <dd>New FastCGI deamon starter utility</dd>
+        <dt><program>fcgistarter</program></dt>
+        <dd>New FastCGI daemon starter utility</dd>
 
-        <dt>htcacheclean</dt>
+        <dt><program>htcacheclean</program></dt>
         <dd>Current cached URLs can now be listed, with optional metadata
         included.</dd>
         <dd>Allow explicit deletion of individual cached URLs from the
@@ -304,9 +327,13 @@
         of or in addition to being limited by the size of the files on
         disk.</dd>
 
-        <dt>rotatelogs</dt>
+        <dt><program>rotatelogs</program></dt>
         <dd>May now create a link to the current log file.</dd>
         <dd>May now invoke a custom post-rotate script.</dd>
+
+        <dt><program>htpasswd</program>, <program>htdbm</program></dt>
+        <dd>Support for the bcrypt algorithm (available in 2.4.4 and later).
+        </dd>
     </dl>
   </section>
 

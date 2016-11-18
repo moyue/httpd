@@ -159,6 +159,32 @@ AP_DECLARE(int) ap_allow_overrides(request_rec *r);
 AP_DECLARE(const char *) ap_document_root(request_rec *r);
 
 /**
+ * Lookup the remote user agent's DNS name or IP address
+ * @ingroup get_remote_host
+ * @param req The current request
+ * @param type The type of lookup to perform.  One of:
+ * <pre>
+ *     REMOTE_HOST returns the hostname, or NULL if the hostname
+ *                 lookup fails.  It will force a DNS lookup according to the
+ *                 HostnameLookups setting.
+ *     REMOTE_NAME returns the hostname, or the dotted quad if the
+ *                 hostname lookup fails.  It will force a DNS lookup according
+ *                 to the HostnameLookups setting.
+ *     REMOTE_NOLOOKUP is like REMOTE_NAME except that a DNS lookup is
+ *                     never forced.
+ *     REMOTE_DOUBLE_REV will always force a DNS lookup, and also force
+ *                   a double reverse lookup, regardless of the HostnameLookups
+ *                   setting.  The result is the (double reverse checked)
+ *                   hostname, or NULL if any of the lookups fail.
+ * </pre>
+ * @param str_is_ip unless NULL is passed, this will be set to non-zero on
+ *        output when an IP address string is returned
+ * @return The remote hostname (based on the request useragent_ip)
+ */
+AP_DECLARE(const char *) ap_get_useragent_host(request_rec *req, int type,
+                                               int *str_is_ip);
+
+/**
  * Lookup the remote client's DNS name or IP address
  * @ingroup get_remote_host
  * @param conn The current connection
@@ -180,7 +206,7 @@ AP_DECLARE(const char *) ap_document_root(request_rec *r);
  * </pre>
  * @param str_is_ip unless NULL is passed, this will be set to non-zero on output when an IP address
  *        string is returned
- * @return The remote hostname
+ * @return The remote hostname (based on the connection client_ip)
  */
 AP_DECLARE(const char *) ap_get_remote_host(conn_rec *conn, void *dir_config, int type, int *str_is_ip);
 
@@ -465,6 +491,17 @@ typedef unsigned long etag_components_t;
 /* This is the default value used */
 #define ETAG_BACKWARD (ETAG_MTIME | ETAG_SIZE)
 
+/* Generic ON/OFF/UNSET for unsigned int foo :2 */
+#define AP_CORE_CONFIG_OFF   (0)
+#define AP_CORE_CONFIG_ON    (1)
+#define AP_CORE_CONFIG_UNSET (2)
+
+/* Generic merge of flag */
+#define AP_CORE_MERGE_FLAG(field, to, base, over) to->field = \
+               over->field != AP_CORE_CONFIG_UNSET            \
+               ? over->field                                  \
+               : base->field                                   
+
 /**
  * @brief Server Signature Enumeration
  */
@@ -497,12 +534,7 @@ typedef struct {
     overrides_t override;
     allow_options_t override_opts;
 
-    /* Custom response config. These can contain text or a URL to redirect to.
-     * if response_code_strings is NULL then there are none in the config,
-     * if it's not null then it's allocated to sizeof(char*)*RESPONSE_CODES.
-     * This lets us do quick merges in merge_core_dir_configs().
-     */
-
+    /* Used to be the custom response config. No longer used. */
     char **response_code_strings; /* from ErrorDocument, not from
                                    * ap_custom_response() */
 
@@ -559,7 +591,7 @@ typedef struct {
     ap_regex_t *r;
 
     const char *mime_type;       /* forced with ForceType  */
-    const char *handler;         /* forced with SetHandler */
+    const char *handler;         /* forced by something other than SetHandler */
     const char *output_filters;  /* forced with SetOutputFilters */
     const char *input_filters;   /* forced with SetInputFilters */
     int accept_path_info;        /* forced with AcceptPathInfo */
@@ -617,6 +649,33 @@ typedef struct {
     /** Max number of Range reversals (eg: 200-300, 100-125) allowed **/
     int max_reversals;
 
+    unsigned int allow_encoded_slashes_set : 1;
+    unsigned int decode_encoded_slashes_set : 1;
+
+    /** Named back references */
+    apr_array_header_t *refs;
+
+#define AP_CGI_PASS_AUTH_OFF     (0)
+#define AP_CGI_PASS_AUTH_ON      (1)
+#define AP_CGI_PASS_AUTH_UNSET   (2)
+    /** CGIPassAuth: Whether HTTP authorization headers will be passed to
+     * scripts as CGI variables; affects all modules calling
+     * ap_add_common_vars(), as well as any others using this field as 
+     * advice
+     */
+    unsigned int cgi_pass_auth : 2;
+
+    /** Custom response config with expression support. The hash table
+     * contains compiled expressions keyed against the custom response
+     * code.
+     */
+    apr_hash_t *response_code_exprs;
+
+    unsigned int qualify_redirect_url :2;
+    ap_expr_info_t  *expr_handler;         /* forced with SetHandler */
+
+    /** Table of rules for building CGI variables, NULL if none configured */
+    apr_hash_t *cgi_var_rules;
 } core_dir_config;
 
 /* macro to implement off by default behaviour */
@@ -663,7 +722,42 @@ typedef struct {
 #define AP_TRACE_ENABLE    1
 #define AP_TRACE_EXTENDED  2
     int trace_enable;
+#define AP_MERGE_TRAILERS_UNSET    0
+#define AP_MERGE_TRAILERS_ENABLE   1
+#define AP_MERGE_TRAILERS_DISABLE  2
+    int merge_trailers;
 
+    apr_array_header_t *conn_log_level;
+
+#define AP_HTTP09_UNSET   0
+#define AP_HTTP09_ENABLE  1
+#define AP_HTTP09_DISABLE 2
+    char http09_enable;
+
+#define AP_HTTP_CONFORMANCE_UNSET     0
+#define AP_HTTP_CONFORMANCE_UNSAFE    1
+#define AP_HTTP_CONFORMANCE_STRICT    2
+    char http_conformance;
+
+#define AP_HTTP_METHODS_UNSET         0
+#define AP_HTTP_METHODS_LENIENT       1
+#define AP_HTTP_METHODS_REGISTERED    2
+    char http_methods;
+
+#define AP_HTTP_CL_HEAD_ZERO_UNSET    0
+#define AP_HTTP_CL_HEAD_ZERO_ENABLE   1
+#define AP_HTTP_CL_HEAD_ZERO_DISABLE  2
+    int http_cl_head_zero;
+
+#define AP_HTTP_EXPECT_STRICT_UNSET    0
+#define AP_HTTP_EXPECT_STRICT_ENABLE   1
+#define AP_HTTP_EXPECT_STRICT_DISABLE  2
+    int http_expect_strict;
+
+    apr_array_header_t *protocols;
+    int protocols_honor_order;
+    int async_filter;
+    unsigned int async_filter_set:1;
 } core_server_config;
 
 /* for AddOutputFiltersByType in core.c */
@@ -741,10 +835,11 @@ typedef struct {
 } ap_mgmt_item_t;
 
 /* Handles for core filters */
-extern AP_DECLARE_DATA ap_filter_rec_t *ap_subreq_core_filter_handle;
-extern AP_DECLARE_DATA ap_filter_rec_t *ap_core_output_filter_handle;
-extern AP_DECLARE_DATA ap_filter_rec_t *ap_content_length_filter_handle;
-extern AP_DECLARE_DATA ap_filter_rec_t *ap_core_input_filter_handle;
+AP_DECLARE_DATA extern ap_filter_rec_t *ap_subreq_core_filter_handle;
+AP_DECLARE_DATA extern ap_filter_rec_t *ap_core_output_filter_handle;
+AP_DECLARE_DATA extern ap_filter_rec_t *ap_content_length_filter_handle;
+AP_DECLARE_DATA extern ap_filter_rec_t *ap_core_input_filter_handle;
+AP_DECLARE_DATA extern ap_filter_rec_t *ap_request_core_filter_handle;
 
 /**
  * This hook provdes a way for modules to provide metrics/statistics about
@@ -794,7 +889,7 @@ typedef struct ap_errorlog_info {
     const server_rec *s;
 
     /** current conn_rec.
-     *  Should be preferred over r->connecction
+     *  Should be preferred over r->connection
      */
     const conn_rec *c;
 
@@ -819,14 +914,58 @@ typedef struct ap_errorlog_info {
     /** apr error status related to the log message, 0 if no error */
     apr_status_t status;
 
-    /** 1 if logging to syslog, 0 otherwise */
-    int using_syslog;
+    /** 1 if logging using provider, 0 otherwise */
+    int using_provider;
     /** 1 if APLOG_STARTUP was set for the log message, 0 otherwise */
     int startup;
 
     /** message format */
     const char *format;
 } ap_errorlog_info;
+
+#define AP_ERRORLOG_PROVIDER_GROUP "error_log_writer"
+#define AP_ERRORLOG_PROVIDER_VERSION "0"
+#define AP_ERRORLOG_DEFAULT_PROVIDER "file"
+
+/** add APR_EOL_STR to the end of log message */
+#define AP_ERRORLOG_PROVIDER_ADD_EOL_STR       1
+
+typedef struct ap_errorlog_provider ap_errorlog_provider;
+
+struct ap_errorlog_provider {
+    /** Initializes the error log writer.
+     * @param p The pool to create any storage from
+     * @param s Server for which the logger is initialized
+     * @return Pointer to handle passed later to writer() function
+     * @note On success, the provider must return non-NULL, even if
+     * the handle is not necessary when the writer() function is
+     * called.  On failure, the provider should log a startup error
+     * message and return NULL to abort httpd startup.
+     */
+    void * (*init)(apr_pool_t *p, server_rec *s);
+
+    /** Logs the error message to external error log.
+     * @param info Context of the error message
+     * @param handle Handle created by init() function
+     * @param errstr Error message
+     * @param len Length of the error message
+     */
+    apr_status_t (*writer)(const ap_errorlog_info *info, void *handle,
+                           const char *errstr, apr_size_t len);
+
+    /** Checks syntax of ErrorLog directive argument.
+     * @param cmd The config directive
+     * @param arg ErrorLog directive argument (or the empty string if
+     * no argument was provided)
+     * @return Error message or NULL on success
+     * @remark The argument will be stored in the error_fname field
+     * of server_rec for access later.
+     */
+    const char * (*parse_errorlog_arg)(cmd_parms *cmd, const char *arg);
+
+    /** a combination of the AP_ERRORLOG_PROVIDER_* flags */
+    unsigned int flags;
+};
 
 /**
  * callback function prototype for a external errorlog handler
@@ -963,6 +1102,15 @@ AP_DECLARE(int) ap_state_query(int query_code);
 #define AP_SQ_RM_CONFIG_TEST       3
   /** only dump some parts of the config */
 #define AP_SQ_RM_CONFIG_DUMP       4
+
+
+/* ---------------------------------------------------------------------- */
+
+/** Create a slave connection
+ * @param c The connection to create the slave connection from/for
+ * @return The slave connection
+ */
+AP_CORE_DECLARE(conn_rec *) ap_create_slave_connection(conn_rec *c);
 
 #ifdef __cplusplus
 }

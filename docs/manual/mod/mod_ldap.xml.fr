@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.fr.xsl"?>
-<!-- English Revision : 1300924 -->
+<!-- English Revision : 1673945 -->
 <!-- French translation : Lucien GENTIS -->
 <!-- Reviewed by : Vincent Deffontaines -->
 
@@ -31,8 +31,6 @@ cache du r&eacute;sultat &agrave; destination des autres modules LDAP</descripti
 <status>Extension</status>
 <sourcefile>util_ldap.c</sourcefile>
 <identifier>ldap_module</identifier>
-<compatibility>Disponible &agrave; partir de la version 2.0.41
-d'Apache</compatibility>
 
 <summary>
     <p>Ce module a &eacute;t&eacute; con&ccedil;u dans le but d'am&eacute;liorer les performances
@@ -52,11 +50,9 @@ d'Apache</compatibility>
     href="http://www.openldap.org/">OpenLDAP SDK</a> (version 2.x ou
     sup&eacute;rieure), <a
     href="http://developer.novell.com/ndk/cldap.htm">Novell LDAP
-    SDK</a>, <a href="http://www.mozilla.org/directory/csdk.html">
-    Mozilla LDAP SDK</a>, le SDK LDAP propre &agrave; Solaris (bas&eacute; sur
-    Mozilla), le SDK LDAP propre &agrave; Microsoft, ou le SDK <a
-    href="http://www.iplanet.com/downloads/developer/">iPlanet
-    (Netscape)</a>. Voir le site web <a
+    SDK</a>, <a href="https://wiki.mozilla.org/LDAP_C_SDK">
+    Mozilla LDAP SDK</a>, le SDK LDAP Solaris natif (bas&eacute; sur Mozilla)
+    ou le SDK LDAP Microsoft natif. Voir le site web <a
     href="http://apr.apache.org">APR</a> pour plus de d&eacute;tails.</p>
 
 </summary>
@@ -67,34 +63,32 @@ d'Apache</compatibility>
     l'authentification HTTP de base fournie par
     <module>mod_authnz_ldap</module>.</p>
 
-    <example>
-      # Active la conservation des connexions LDAP et le cache partag&eacute; en<br />
-      # m&eacute;moire. Active le gestionnaire de statut du cache LDAP.<br />
-      # N&eacute;cessite le chargement de mod_ldap et de mod_authnz_ldap.<br />
-      # Remplacez "votre-domaine.example.com" par le nom de votre<br />
-      # domaine.<br />
-      <br />
-      LDAPSharedCacheSize 500000<br />
-      LDAPCacheEntries 1024<br />
-      LDAPCacheTTL 600<br />
-      LDAPOpCacheEntries 1024<br />
-      LDAPOpCacheTTL 600<br />
-      <br />
-      &lt;Location /statut-ldap&gt;<br />
-      <indent>
-        SetHandler ldap-status<br />
+    <highlight language="config">
+# Active la conservation des connexions LDAP et le cache partag&eacute; en
+# m&eacute;moire. Active le gestionnaire de statut du cache LDAP.
+# N&eacute;cessite le chargement de mod_ldap et de mod_authnz_ldap.
+# Remplacez "votre-domaine.example.com" par le nom de votre
+# domaine.
 
-        Require host votre-domaine.example.com<br />
+LDAPSharedCacheSize 500000
+LDAPCacheEntries 1024
+LDAPCacheTTL 600
+LDAPOpCacheEntries 1024
+LDAPOpCacheTTL 600
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "Prot&eacute;g&eacute; par LDAP"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one<br />
-        Require valid-user<br />
-      </indent>
-      &lt;/Location&gt;
-    </example>
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+    
+    Require host yourdomain.example.com
+    
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;
+    </highlight>
 </section>
 
 <section id="pool"><title>Conservation des connexions LDAP</title>
@@ -203,13 +197,11 @@ d'Apache</compatibility>
       suivantes pour acc&eacute;der aux informations du cache de
       <module>mod_ldap</module> :</p>
 
-      <example>
-        &lt;Location /serveur/infos-cache&gt;<br />
-        <indent>
-          SetHandler ldap-status<br />
-        </indent>
-        &lt;/Location&gt;
-      </example>
+      <highlight language="config">
+&lt;Location "/server/cache-info"&gt;
+    SetHandler ldap-status
+&lt;/Location&gt;
+      </highlight>
 
       <p>En se connectant &agrave; l'URL
       <code>http://nom-serveur/infos-cache</code>, l'administrateur peut
@@ -234,53 +226,49 @@ d'Apache</compatibility>
     ainsi que le type de chiffrement &agrave; utiliser pour la connexion (none,
     SSL ou TLS/STARTTLS).</p>
 
-    <example>
-      # Etablissement d'une connexion SSL LDAP sur le port 636.<br />
-      # N&eacute;cessite le chargement de mod_ldap et mod_authnz_ldap.<br />
-      # Remplacez "votre-domaine.example.com" par le nom de votre<br />
-      # domaine.<br />
-      <br />
-      LDAPTrustedGlobalCert CA_DER /certs/fichier-certificat.der<br />
-      <br />
-      &lt;Location /statut-ldap&gt;<br />
-      <indent>
-        SetHandler ldap-status<br />
+    <highlight language="config">
+# Etablissement d'une connexion SSL LDAP sur le port 636.
+# N&eacute;cessite le chargement de mod_ldap et mod_authnz_ldap.
+# Remplacez "votre-domaine.example.com" par le nom de votre
+# domaine.
 
-        Require host votre-domaine.example.com<br />
+LDAPTrustedGlobalCert CA_DER /certs/certfile.der
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "Prot&eacute;g&eacute; par LDAP"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-        Require valid-user<br />
-      </indent>
-      &lt;/Location&gt;
-    </example>
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+    
+    Require host yourdomain.example.com
+    
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;
+    </highlight>
 
-    <example>
-      # Etablissement d'une connexion TLS LDAP sur le port 389.<br />
-      # N&eacute;cessite le chargement de mod_ldap et mod_authnz_ldap.<br />
-      # Remplacez "votre-domaine.example.com" par le nom de votre<br />
-      # domaine.<br />
-      <br />
-      LDAPTrustedGlobalCert CA_DER /certs/fichier-certificat.der<br />
-      <br />
-      &lt;Location /statut-ldap&gt;<br />
-      <indent>
-        SetHandler ldap-status<br />
+    <highlight language="config">
+# Etablissement d'une connexion TLS LDAP sur le port 389.
+# N&eacute;cessite le chargement de mod_ldap et mod_authnz_ldap.
+# Remplacez "votre-domaine.example.com" par le nom de votre
+# domaine.
 
-        Require host votre-domaine.example.com<br />
+LDAPTrustedGlobalCert CA_DER /certs/certfile.der
 
-        Satisfy any<br />
-        AuthType Basic<br />
-        AuthName "Prot&eacute;g&eacute; par LDAP"<br />
-        AuthBasicProvider ldap<br />
-        AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one TLS<br />
-        Require valid-user<br />
-      </indent>
-      &lt;/Location&gt;
-    </example>
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+    
+    Require host yourdomain.example.com
+    
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldap://127.0.0.1/dc=example,dc=com?uid?one TLS
+    Require valid-user
+&lt;/Location&gt;
+    </highlight>
 
 </section>
 
@@ -316,31 +304,28 @@ d'Apache</compatibility>
 	de STARTTLS engendrera une erreur lors des tentatives de
 	contacter le serveur LDAP pendant l'ex&eacute;cution.</p>
 
-        <example>
-            # Sp&eacute;cifie un fichier de certificats de CA Netscape<br />
-            LDAPTrustedGlobalCert CA_CERT7_DB /certs/cert7.db<br />
-            # Sp&eacute;cifie un fichier key3db optionnel pour le support des
-	    # certificats clients<br />
-            LDAPTrustedGlobalCert CERT_KEY3_DB /certs/key3.db<br />
-            # Sp&eacute;cifie le fichier secmod si n&eacute;cessaire<br />
-            LDAPTrustedGlobalCert CA_SECMOD /certs/secmod<br />
-            &lt;Location /statut-ldap&gt;<br />
-            <indent>
-                SetHandler ldap-status<br />
+        <highlight language="config">
+# Sp&eacute;cifie un fichier de certificats de CA Netscape
+LDAPTrustedGlobalCert CA_CERT7_DB /certs/cert7.db
+# Sp&eacute;cifie un fichier key3db optionnel pour le support des
+# certificats clients
+LDAPTrustedGlobalCert CERT_KEY3_DB /certs/key3.db
+# Sp&eacute;cifie le fichier secmod si n&eacute;cessaire
+LDAPTrustedGlobalCert CA_SECMOD /certs/secmod
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
 
-                Require host votre-domaine.example.com<br />
+    Require host yourdomain.example.com
 
-                Satisfy any<br />
-                AuthType Basic<br />
-                AuthName "Prot&eacute;g&eacute; par LDAP"<br />
-                AuthBasicProvider ldap<br />
-                LDAPTrustedClientCert CERT_NICKNAME &lt;nickname&gt;
-		[mot de passe]<br />
-                AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-                Require valid-user<br />
-            </indent>
-            &lt;/Location&gt;
-        </example>
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    LDAPTrustedClientCert CERT_NICKNAME &lt;nickname&gt; [password]
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;
+        </highlight>
 
     </section>
 
@@ -363,19 +348,18 @@ d'Apache</compatibility>
 	ldaps:// est sp&eacute;cifi&eacute;e, le mode SSL est forc&eacute;, et l'emporte sur
 	cette directive.</p>
 
-        <example>
-             # Sp&eacute;cifie deux fichiers contenant des certificats de CA<br />
-             LDAPTrustedGlobalCert CA_DER /certs/cacert1.der<br />
-             LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem<br />
-             # Sp&eacute;cifie un fichier contenant des certificats clients
-	     # ainsi qu'une cl&eacute;<br />
-             LDAPTrustedGlobalCert CERT_BASE64 /certs/cert1.pem<br />
-             LDAPTrustedGlobalCert KEY_BASE64 /certs/key1.pem [mot de
-	     passe]<br />
-             # N'utilisez pas cette directive, sous peine de provoquer
-	     # une erreur<br />
-             #LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem<br />
-        </example>
+        <highlight language="config">
+# Sp&eacute;cifie deux fichiers contenant des certificats de CA
+LDAPTrustedGlobalCert CA_DER /certs/cacert1.der
+LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem
+# Sp&eacute;cifie un fichier contenant des certificats clients
+# ainsi qu'une cl&eacute;
+LDAPTrustedGlobalCert CERT_BASE64 /certs/cert1.pem
+LDAPTrustedGlobalCert KEY_BASE64 /certs/key1.pem [password]
+# N'utilisez pas cette directive, sous peine de provoquer
+# une erreur
+#LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem
+        </highlight>
 
     </section>
 
@@ -398,27 +382,28 @@ d'Apache</compatibility>
 	OpenLDAP indique que le support SSL (ldaps://) tend &agrave; &ecirc;tre
 	remplac&eacute; par TLS, bien que le mode SSL fonctionne toujours.</p>
 
-        <example>
-             # Sp&eacute;cifie deux fichiers contenant des certificats de CA<br />
-             LDAPTrustedGlobalCert CA_DER /certs/cacert1.der<br />
-             LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem<br />
-            &lt;Location /statut-ldap&gt;<br />
-            <indent>
-                SetHandler ldap-status<br />
-
-                Require host votre-domaine.example.com<br />
-
-                LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem<br />
-                LDAPTrustedClientCert KEY_BASE64 /certs/key1.pem<br />
-                Satisfy any<br />
-                AuthType Basic<br />
-                AuthName "Prot&eacute;g&eacute; par LDAP"<br />
-                AuthBasicProvider ldap<br />
-                AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one<br />
-                Require valid-user<br />
-            </indent>
-            &lt;/Location&gt;
-        </example>
+        <highlight language="config">
+# Sp&eacute;cifie deux fichiers contenant des certificats de CA
+LDAPTrustedGlobalCert CA_DER /certs/cacert1.der
+LDAPTrustedGlobalCert CA_BASE64 /certs/cacert2.pem
+&lt;Location "/ldap-status"&gt;
+    SetHandler ldap-status
+    
+    Require host yourdomain.example.com
+    
+    LDAPTrustedClientCert CERT_BASE64 /certs/cert1.pem
+    LDAPTrustedClientCert KEY_BASE64 /certs/key1.pem
+    # CA certs respecified due to per-directory client certs
+    LDAPTrustedClientCert CA_DER /certs/cacert1.der
+    LDAPTrustedClientCert CA_BASE64 /certs/cacert2.pem
+    Satisfy any
+    AuthType Basic
+    AuthName "LDAP Protected"
+    AuthBasicProvider ldap
+    AuthLDAPURL ldaps://127.0.0.1/dc=example,dc=com?uid?one
+    Require valid-user
+&lt;/Location&gt;
+        </highlight>
 
     </section>
 
@@ -468,14 +453,18 @@ d'Apache</compatibility>
 <name>LDAPSharedCacheFile</name>
 <description>D&eacute;finit le fichier du cache en m&eacute;moire
 partag&eacute;e</description>
-<syntax>LDAPSharedCacheFile <var>chemin/nom-fichier</var></syntax>
+<syntax>LDAPSharedCacheFile <var>chemin-fichier</var></syntax>
 <contextlist><context>server config</context></contextlist>
 
 <usage>
-    <p>Cette directive permet de sp&eacute;cifier le chemin et le nom du
+    <p>Cette directive permet de sp&eacute;cifier le chemin du
     fichier du cache en m&eacute;moire partag&eacute;e. Si elle n'est pas d&eacute;finie, la
     m&eacute;moire partag&eacute;e anonyme sera utilis&eacute;e si la plate-forme la
     supporte.</p>
+
+    <p>Si <var>chemin-fichier</var> n'est pas un chemin absolu, il sera
+    relatif au r&eacute;pertoire d&eacute;fini via la directive <directive
+    module="core">DefaultRuntimeDir</directive>.</p>
 </usage>
 </directivesynopsis>
 
@@ -555,7 +544,7 @@ LDAP.</description>
 <override>AuthConfig</override>
 
 <usage>
-    <p>Si elle est activ&eacute;e par la directive <code>LDAPReferrals</code>,
+    <p>Si elle est activ&eacute;e par la directive <directive>LDAPReferrals</directive>,
     cette directive permet de d&eacute;finir le nombre maximum de sauts vers
     des serveurs alternatifs (referrals) avant l'abandon de la requ&ecirc;te
     LDAP.</p>
@@ -570,24 +559,47 @@ LDAP.</description>
 <name>LDAPReferrals</name>
 <description>Active la redirection vers des serveurs alternatifs au
 cours des requ&ecirc;tes vers le serveur LDAP.</description>
-<syntax>LDAPReferrals <var>On|Off</var></syntax>
+<syntax>LDAPReferrals <var>On|Off|default</var></syntax>
 <default>LDAPReferrals On</default>
 <contextlist><context>directory</context><context>.htaccess</context></contextlist>
 <override>AuthConfig</override>
+<compatibility>Le param&egrave;tre <var>default</var> est disponible depuis la
+version 2.4.7 du serveur HTTP Apache.</compatibility>
 
 <usage>
     <p>Certains serveurs LDAP partagent leur annuaire en plusieurs
     domaines et utilisent le syst&egrave;me des redirections (referrals) pour
     aiguiller un client lorsque les limites d'un domaine doivent &ecirc;tre
-    franchies. En d&eacute;finissant <code>LDAPReferrals On</code>, les
-    redirections seront prises en compte (et bien entendu, en
-    d&eacute;finissant <code>LDAPReferrals Off</code>, les redirections seront
-    ignor&eacute;es). La directive <code>LDAPReferralHopLimit</code> compl&egrave;te
-    cette directive en d&eacute;finissant le nombre maximum de redirections &agrave;
-    suivre avant l'abandon de la requ&ecirc;te LDAP. Lorsque le traitement des
-    redirections est activ&eacute;, les donn&eacute;es d'identification du client
-    seront fournies, via un appel (callback) de r&eacute;identification, &agrave; tout
-    serveur LDAP qui en fera la demande.</p>
+    franchies. Ce processus est similaire &agrave; une redirection HTTP. Les
+    biblioth&egrave;ques client LDAP ne respectent pas forc&eacute;ment ces
+    redirections par d&eacute;faut. Cette directive permet de configurer
+    explicitement les redirections LDAP dans le SDK sous-jacent.</p>
+
+    <p>La directive <directive>LDAPReferrals</directive> accepte les
+    valeurs suivantes :</p>
+
+    <dl>
+     <dt>"on"</dt>
+     <dd> <p>Avec la valeur "on", la prise en compte des redirections
+     LDAP par le SDK sous-jacent est activ&eacute;e, la directive
+     <directive>LDAPReferralHopLimit</directive> permet de surcharger la
+     "hop limit" du SDK, et un "LDAP rebind callback" est enregistr&eacute;.</p></dd>
+     <dt>"off"</dt>
+     <dd> <p>Avec la valeur "off", la prise en compte des redirections
+     LDAP par le SDK sous-jacent est compl&egrave;tement d&eacute;sactiv&eacute;e.</p></dd>
+     <dt>"default"</dt>
+     <dd> <p>Avec la valeur "default", la prise en compte des redirections
+     LDAP par le SDK sous-jacent n'est pas modifi&eacute;e, la directive
+     <directive>LDAPReferralHopLimit</directive> ne permet pas de surcharger la
+     "hop limit" du SDK, et aucun "LDAP rebind callback" n'est enregistr&eacute;.</p></dd>
+    </dl>
+    
+    <p>La directive <directive>LDAPReferralHopLimit</directive> travaille en
+    conjonction avec cette directive pour limiter le nombre de
+    redirections &agrave; suivre pour achever le traitement de la requ&ecirc;te LDAP.
+    Lorsque le processus de redirection est activ&eacute; par la valeur "On",
+    les donn&eacute;es d'authentification du client sont transmises via un
+    "rebind callback" &agrave; tout serveur LDAP qui en fait la demande.</p>
 </usage>
 </directivesynopsis>
 
@@ -835,6 +847,19 @@ Apache</compatibility>
     sauvegard&eacute;es dans le jeu de connexions d'arri&egrave;re-plan. Avec la
     valeur par d&eacute;faut -1, ou toute autre valeur n&eacute;gative, les connexions
     peuvent &ecirc;tre r&eacute;utilis&eacute;es sans limite de dur&eacute;e.</p>
+
+    <p>Dans le but d'am&eacute;liorer les performances, le temps de r&eacute;f&eacute;rence
+    qu'utilise cette directive correspond au moment o&ugrave; la connexion LDAP
+    est enregistr&eacute;e ou remise dans le jeu de connexions, et non au
+    moment du dernier &eacute;change r&eacute;ussi avec le serveur LDAP.</p>
+
+    <p>La version 2.4.10 a introduit de nouvelles mesures permettant
+    d'&eacute;viter une augmentation excessive du temps de r&eacute;f&eacute;rence due &agrave; des
+    correspondances positives dans le cache ou des requ&ecirc;tes lentes. A
+    cet effet, le temps de r&eacute;f&eacute;rence n'est pas r&eacute;actualis&eacute; si aucune
+    connexion LDAP d'arri&egrave;re-plan n'est requise ; d'autre part, le temps
+    de r&eacute;f&eacute;rence se base sur le moment o&ugrave; la requ&ecirc;te HTTP est re&ccedil;ue, et
+    non sur le moment o&ugrave; la requ&ecirc;te a &eacute;t&eacute; trait&eacute;e.</p>
 
     <note><p>Cette dur&eacute;e de vie s'exprime par d&eacute;faut en secondes, mais
     il est possible d'utiliser d'autres unit&eacute;s en ajoutant un suffixe :

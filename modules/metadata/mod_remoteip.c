@@ -37,11 +37,11 @@ typedef struct {
 } remoteip_proxymatch_t;
 
 typedef struct {
-    /** The header to retrieve a proxy-via ip list */
+    /** The header to retrieve a proxy-via IP list */
     const char *header_name;
     /** A header to record the proxied IP's
      * (removed as the physical connection and
-     * from the proxy-via ip header value list)
+     * from the proxy-via IP header value list)
      */
     const char *proxies_header_name;
     /** A list of trusted proxies, ideally configured
@@ -53,9 +53,9 @@ typedef struct {
 typedef struct {
     apr_sockaddr_t *useragent_addr;
     char *useragent_ip;
-    /** The list of proxy ip's ignored as remote ip's */
+    /** The list of proxy IP's ignored as remote IP's */
     const char *proxy_ips;
-    /** The remaining list of untrusted proxied remote ip's */
+    /** The remaining list of untrusted proxied remote IP's */
     const char *proxied_remote;
 } remoteip_req_t;
 
@@ -170,10 +170,9 @@ static const char *proxies_set(cmd_parms *cmd, void *cfg,
     }
 
     if (rv != APR_SUCCESS) {
-        char msgbuf[128];
-        apr_strerror(rv, msgbuf, sizeof(msgbuf));
-        return apr_pstrcat(cmd->pool, "RemoteIP: Error parsing IP ", arg,
-                           " (", msgbuf, " error) for ", cmd->cmd->name, NULL);
+        return apr_psprintf(cmd->pool,
+                            "RemoteIP: Error parsing IP %s (%pm error) for %s",
+                            arg, &rv, cmd->cmd->name);
     }
 
     return NULL;
@@ -192,19 +191,19 @@ static const char *proxylist_read(cmd_parms *cmd, void *cfg,
     filename = ap_server_root_relative(cmd->temp_pool, filename);
     rv = ap_pcfg_openfile(&cfp, cmd->temp_pool, filename);
     if (rv != APR_SUCCESS) {
-        return apr_psprintf(cmd->pool, "%s: Could not open file %s: %s",
-                            cmd->cmd->name, filename,
-                            apr_strerror(rv, lbuf, sizeof(lbuf)));
+        return apr_psprintf(cmd->pool, "%s: Could not open file %s: %pm",
+                            cmd->cmd->name, filename, &rv);
     }
 
     while (!(ap_cfg_getline(lbuf, MAX_STRING_LEN, cfp))) {
         args = lbuf;
         while (*(arg = ap_getword_conf(cmd->temp_pool, &args)) != '\0') {
-            if (*arg == '#' || *arg == '\0') {
+            if (*arg == '#') {
                 break;
             }
             errmsg = proxies_set(cmd, cfg, arg);
             if (errmsg) {
+                ap_cfg_closefile(cfp);
                 errmsg = apr_psprintf(cmd->pool, "%s at line %d of %s",
                                       errmsg, cfp->line_number, filename);
                 return errmsg;
@@ -231,10 +230,23 @@ static int remoteip_modify_request(request_rec *r)
     char *parse_remote;
     char *eos;
     unsigned char *addrbyte;
+
+    /* If no RemoteIPInternalProxy, RemoteIPInternalProxyList, RemoteIPTrustedProxy
+       or RemoteIPTrustedProxyList directive is configured,
+       all proxies will be considered as external trusted proxies.
+     */
     void *internal = NULL;
 
     if (!config->header_name) {
         return DECLINED;
+    }
+ 
+    if (config->proxymatch_ip) {
+        /* This indicates that a RemoteIPInternalProxy, RemoteIPInternalProxyList, RemoteIPTrustedProxy
+           or RemoteIPTrustedProxyList directive is configured.
+           In this case, default to internal proxy.
+         */
+        internal = (void *) 1;
     }
 
     remote = (char *) apr_table_get(r->headers_in, config->header_name);
@@ -243,19 +255,25 @@ static int remoteip_modify_request(request_rec *r)
     }
     remote = apr_pstrdup(r->pool, remote);
 
-    temp_sa = c->client_addr;
+    temp_sa = r->useragent_addr ? r->useragent_addr : c->client_addr;
 
     while (remote) {
 
-        /* verify c->client_addr is trusted if there is a trusted proxy list
+        /* verify user agent IP against the trusted proxy list
          */
         if (config->proxymatch_ip) {
             int i;
             remoteip_proxymatch_t *match;
             match = (remoteip_proxymatch_t *)config->proxymatch_ip->elts;
             for (i = 0; i < config->proxymatch_ip->nelts; ++i) {
-                if (apr_ipsubnet_test(match[i].ip, c->client_addr)) {
-                    internal = match[i].internal;
+                if (apr_ipsubnet_test(match[i].ip, temp_sa)) {
+                    if (internal) {
+                        /* Allow an internal proxy to present an external proxy,
+                           but do not allow an external proxy to present an internal proxy.
+                           In this case, the presented internal proxy will be considered external.
+                         */
+                        internal = match[i].internal;
+                    }
                     break;
                 }
             }
@@ -291,7 +309,7 @@ static int remoteip_modify_request(request_rec *r)
             break;
         }
 
-        /* We map as IPv4 rather than IPv6 for equivilant host names
+        /* We map as IPv4 rather than IPv6 for equivalent host names
          * or IPV4OVERIPV6
          */
         rv = apr_sockaddr_info_get(&temp_sa,  parse_remote,
@@ -310,7 +328,6 @@ static int remoteip_modify_request(request_rec *r)
                 remote = parse_remote;
             }
             break;
-
         }
 
         addrbyte = (unsigned char *) &temp_sa->sa.sin.sin_addr;
@@ -354,16 +371,17 @@ static int remoteip_modify_request(request_rec *r)
         /* save away our results */
         if (!req) {
             req = (remoteip_req_t *) apr_palloc(r->pool, sizeof(remoteip_req_t));
+            req->useragent_ip = r->useragent_ip;
         }
 
         /* Set useragent_ip string */
         if (!internal) {
             if (proxy_ips) {
                 proxy_ips = apr_pstrcat(r->pool, proxy_ips, ", ",
-                                        c->client_ip, NULL);
+                                        req->useragent_ip, NULL);
             }
             else {
-                proxy_ips = c->client_ip;
+                proxy_ips = req->useragent_ip;
             }
         }
 
@@ -400,8 +418,9 @@ static int remoteip_modify_request(request_rec *r)
     ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                   req->proxy_ips
                       ? "Using %s as client's IP by proxies %s"
-                      : "Using %s as client's IP by internal proxies",
-                  req->useragent_ip, req->proxy_ips);
+                      : "Using %s as client's IP by internal proxies%s",
+                  req->useragent_ip,
+                  (req->proxy_ips ? req->proxy_ips : ""));
     return OK;
 }
 

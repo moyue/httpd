@@ -22,3 +22,6 @@
 <!ENTITY httpd.patch "0">
 
 <!ENTITY httpd.docs "trunk">
+
+<!-- Version tag for comments -->
+<!ENTITY httpd.comments "trunk">

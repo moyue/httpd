@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.ja.xsl"?>
-<!-- English Revision: 420990:1174747 (outdated) -->
+<!-- English Revision: 420990:1673945 (outdated) -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -100,7 +100,7 @@
           # run on output<br />
           SetOutputFilter gzip<br />
           <br />
-          # mod_header directive to add<br />
+          # mod_headers directive to add<br />
           # "Content-Encoding: gzip" header field<br />
           Header set Content-Encoding gzip<br />
         </indent>

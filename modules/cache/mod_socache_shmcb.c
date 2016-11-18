@@ -19,6 +19,7 @@
 #include "http_request.h"
 #include "http_protocol.h"
 #include "http_config.h"
+#include "mod_status.h"
 
 #include "apr.h"
 #include "apr_strings.h"
@@ -28,13 +29,28 @@
 #include "apr_want.h"
 #include "apr_general.h"
 
+#if APR_HAVE_LIMITS_H
+#include <limits.h>
+#endif
+
 #include "ap_socache.h"
 
-#define SHMCB_MAX_SIZE (64 * 1024 * 1024)
+/* XXX Unfortunately, there are still many unsigned ints in use here, so we
+ * XXX cannot allow more than UINT_MAX. Since some of the ints are exposed in
+ * XXX public interfaces, a simple search and replace is not enough.
+ * XXX It should be possible to extend that so that the total cache size can
+ * XXX be APR_SIZE_MAX and only the object size needs to be smaller than
+ * XXX UINT_MAX.
+ */
+#define SHMCB_MAX_SIZE (UINT_MAX<APR_SIZE_MAX ? UINT_MAX : APR_SIZE_MAX)
 
 #define DEFAULT_SHMCB_PREFIX "socache-shmcb-"
 
 #define DEFAULT_SHMCB_SUFFIX ".cache"
+
+#define ALIGNED_HEADER_SIZE APR_ALIGN_DEFAULT(sizeof(SHMCBHeader))
+#define ALIGNED_SUBCACHE_SIZE APR_ALIGN_DEFAULT(sizeof(SHMCBSubcache))
+#define ALIGNED_INDEX_SIZE APR_ALIGN_DEFAULT(sizeof(SHMCBIndex))
 
 /*
  * Header structure - the start of the shared-mem segment
@@ -141,7 +157,7 @@ struct ap_socache_instance_t {
  * a pointer to the corresponding subcache. */
 #define SHMCB_SUBCACHE(pHeader, num) \
                 (SHMCBSubcache *)(((unsigned char *)(pHeader)) + \
-                        sizeof(SHMCBHeader) + \
+                        ALIGNED_HEADER_SIZE + \
                         (num) * ((pHeader)->subcache_size))
 
 /* This macro takes a pointer to the header and an id and returns a
@@ -157,8 +173,9 @@ struct ap_socache_instance_t {
 /* This macro takes a pointer to a subcache and a zero-based index and returns
  * a pointer to the corresponding SHMCBIndex. */
 #define SHMCB_INDEX(pSubcache, num) \
-                ((SHMCBIndex *)(((unsigned char *)pSubcache) + \
-                                sizeof(SHMCBSubcache)) + num)
+                (SHMCBIndex *)(((unsigned char *)pSubcache) + \
+                        ALIGNED_SUBCACHE_SIZE + \
+                        (num) * ALIGNED_INDEX_SIZE)
 
 /* This macro takes a pointer to the header and a subcache and returns a
  * pointer to the corresponding data area. */
@@ -194,7 +211,8 @@ static void shmcb_cyclic_ntoc_memcpy(unsigned int buf_size, unsigned char *data,
     }
 }
 
-/* A "cyclic-to-normal" memcpy. */static void shmcb_cyclic_cton_memcpy(unsigned int buf_size, unsigned char *dest,
+/* A "cyclic-to-normal" memcpy. */
+static void shmcb_cyclic_cton_memcpy(unsigned int buf_size, unsigned char *dest,
                                      const unsigned char *data, unsigned int src_offset,
                                      unsigned int src_len)
 {
@@ -285,7 +303,7 @@ static const char *socache_shmcb_create(ap_socache_instance_t **context,
         return NULL;
     }
 
-    ctx->data_file = path = ap_server_root_relative(p, arg);
+    ctx->data_file = path = ap_runtime_dir_relative(p, arg);
 
     cp = strrchr(path, '(');
     cp2 = path + strlen(path) - 1;
@@ -310,11 +328,9 @@ static const char *socache_shmcb_create(ap_socache_instance_t **context,
         }
 
         if (ctx->shm_size >= SHMCB_MAX_SIZE) {
-            return apr_psprintf(tmp,
-                                "Invalid argument: size has "
-                                "to be < %d bytes on this platform",
-                                SHMCB_MAX_SIZE);
-
+            return apr_psprintf(tmp, "Invalid argument: size has "
+                    "to be < %" APR_SIZE_T_FMT " bytes on this platform",
+                    SHMCB_MAX_SIZE);
         }
     }
     else if (cp2 >= path && *cp2 == ')') {
@@ -348,7 +364,7 @@ static apr_status_t socache_shmcb_init(ap_socache_instance_t *ctx,
     rv = apr_shm_create(&ctx->shm, ctx->shm_size, NULL, p);
     if (APR_STATUS_IS_ENOTIMPL(rv)) {
         /* If anon shm isn't supported, fail if no named file was
-         * configured successfully; the ap_server_root_relative call
+         * configured successfully; the ap_runtime_dir_relative call
          * above will return NULL for invalid paths. */
         if (ctx->data_file == NULL) {
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(00818)
@@ -373,7 +389,7 @@ static apr_status_t socache_shmcb_init(ap_socache_instance_t *ctx,
 
     shm_segment = apr_shm_baseaddr_get(ctx->shm);
     shm_segsize = apr_shm_size_get(ctx->shm);
-    if (shm_segsize < (5 * sizeof(SHMCBHeader))) {
+    if (shm_segsize < (5 * ALIGNED_HEADER_SIZE)) {
         /* the segment is ridiculously small, bail out */
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(00820)
                      "shared memory segment too small");
@@ -384,7 +400,7 @@ static apr_status_t socache_shmcb_init(ap_socache_instance_t *ctx,
                  " bytes of shared memory",
                  shm_segsize);
     /* Discount the header */
-    shm_segsize -= sizeof(SHMCBHeader);
+    shm_segsize -= ALIGNED_HEADER_SIZE;
     /* Select index size based on average object size hints, if given. */
     avg_obj_size = hints && hints->avg_obj_size ? hints->avg_obj_size : 150;
     avg_id_len = hints && hints->avg_id_len ? hints->avg_id_len : 30;
@@ -397,7 +413,8 @@ static apr_status_t socache_shmcb_init(ap_socache_instance_t *ctx,
                  "for %" APR_SIZE_T_FMT " bytes (%" APR_SIZE_T_FMT
                  " including header), recommending %u subcaches, "
                  "%u indexes each", shm_segsize,
-                 shm_segsize + sizeof(SHMCBHeader), num_subcache, num_idx);
+                 shm_segsize + ALIGNED_HEADER_SIZE,
+                 num_subcache, num_idx);
     if (num_idx < 5) {
         /* we're still too small, bail out */
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(00823)
@@ -416,13 +433,14 @@ static apr_status_t socache_shmcb_init(ap_socache_instance_t *ctx,
     header->stat_removes_miss = 0;
     header->subcache_num = num_subcache;
     /* Convert the subcache size (in bytes) to a value that is suitable for
-     * structure alignment on the host platform, by rounding down if necessary.
-     * This assumes that sizeof(unsigned long) provides an appropriate
-     * alignment unit.  */
-    header->subcache_size = ((size_t)(shm_segsize / num_subcache) &
-                             ~(size_t)(sizeof(unsigned long) - 1));
-    header->subcache_data_offset = sizeof(SHMCBSubcache) +
-                                   num_idx * sizeof(SHMCBIndex);
+     * structure alignment on the host platform, by rounding down if necessary. */
+    header->subcache_size = (size_t)(shm_segsize / num_subcache);
+    if (header->subcache_size != APR_ALIGN_DEFAULT(header->subcache_size)) {
+        header->subcache_size = APR_ALIGN_DEFAULT(header->subcache_size) -
+                                APR_ALIGN_DEFAULT(1);
+    }
+    header->subcache_data_offset = ALIGNED_SUBCACHE_SIZE +
+                                   num_idx * ALIGNED_INDEX_SIZE;
     header->subcache_data_size = header->subcache_size -
                                  header->subcache_data_offset;
     header->index_num = num_idx;
@@ -593,40 +611,69 @@ static void socache_shmcb_status(ap_socache_instance_t *ctx,
                                  header->subcache_num);
     cache_pct = (100 * cache_total) / (header->subcache_data_size *
                                        header->subcache_num);
-    /* Generate HTML */
-    ap_rprintf(r, "cache type: <b>SHMCB</b>, shared memory: <b>%" APR_SIZE_T_FMT "</b> "
-               "bytes, current entries: <b>%d</b><br>",
-               ctx->shm_size, total);
-    ap_rprintf(r, "subcaches: <b>%d</b>, indexes per subcache: <b>%d</b><br>",
-               header->subcache_num, header->index_num);
-    if (non_empty_subcaches) {
-        apr_time_t average_expiry = (apr_time_t)(expiry_total / (double)non_empty_subcaches);
-        ap_rprintf(r, "time left on oldest entries' objects: ");
-        if (now < average_expiry)
-            ap_rprintf(r, "avg: <b>%d</b> seconds, (range: %d...%d)<br>",
-                       (int)apr_time_sec(average_expiry - now),
-                       (int)apr_time_sec(min_expiry - now),
-                       (int)apr_time_sec(max_expiry - now));
-        else
-            ap_rprintf(r, "expiry_threshold: <b>Calculation error!</b><br>");
-    }
+    /* Generate Output */
+    if (!(flags & AP_STATUS_SHORT)) {
+        ap_rprintf(r, "cache type: <b>SHMCB</b>, shared memory: <b>%" APR_SIZE_T_FMT "</b> "
+                   "bytes, current entries: <b>%d</b><br>",
+                   ctx->shm_size, total);
+        ap_rprintf(r, "subcaches: <b>%d</b>, indexes per subcache: <b>%d</b><br>",
+                   header->subcache_num, header->index_num);
+        if (non_empty_subcaches) {
+            apr_time_t average_expiry = (apr_time_t)(expiry_total / (double)non_empty_subcaches);
+            ap_rprintf(r, "time left on oldest entries' objects: ");
+            if (now < average_expiry)
+                ap_rprintf(r, "avg: <b>%d</b> seconds, (range: %d...%d)<br>",
+                           (int)apr_time_sec(average_expiry - now),
+                           (int)apr_time_sec(min_expiry - now),
+                           (int)apr_time_sec(max_expiry - now));
+            else
+                ap_rprintf(r, "expiry_threshold: <b>Calculation error!</b><br>");
+        }
 
-    ap_rprintf(r, "index usage: <b>%d%%</b>, cache usage: <b>%d%%</b><br>",
-               index_pct, cache_pct);
-    ap_rprintf(r, "total entries stored since starting: <b>%lu</b><br>",
-               header->stat_stores);
-    ap_rprintf(r, "total entries replaced since starting: <b>%lu</b><br>",
-               header->stat_replaced);
-    ap_rprintf(r, "total entries expired since starting: <b>%lu</b><br>",
-               header->stat_expiries);
-    ap_rprintf(r, "total (pre-expiry) entries scrolled out of the cache: "
-               "<b>%lu</b><br>", header->stat_scrolled);
-    ap_rprintf(r, "total retrieves since starting: <b>%lu</b> hit, "
-               "<b>%lu</b> miss<br>", header->stat_retrieves_hit,
-               header->stat_retrieves_miss);
-    ap_rprintf(r, "total removes since starting: <b>%lu</b> hit, "
-               "<b>%lu</b> miss<br>", header->stat_removes_hit,
-               header->stat_removes_miss);
+        ap_rprintf(r, "index usage: <b>%d%%</b>, cache usage: <b>%d%%</b><br>",
+                   index_pct, cache_pct);
+        ap_rprintf(r, "total entries stored since starting: <b>%lu</b><br>",
+                   header->stat_stores);
+        ap_rprintf(r, "total entries replaced since starting: <b>%lu</b><br>",
+                   header->stat_replaced);
+        ap_rprintf(r, "total entries expired since starting: <b>%lu</b><br>",
+                   header->stat_expiries);
+        ap_rprintf(r, "total (pre-expiry) entries scrolled out of the cache: "
+                   "<b>%lu</b><br>", header->stat_scrolled);
+        ap_rprintf(r, "total retrieves since starting: <b>%lu</b> hit, "
+                   "<b>%lu</b> miss<br>", header->stat_retrieves_hit,
+                   header->stat_retrieves_miss);
+        ap_rprintf(r, "total removes since starting: <b>%lu</b> hit, "
+                   "<b>%lu</b> miss<br>", header->stat_removes_hit,
+                   header->stat_removes_miss);
+    }
+    else {
+        ap_rputs("CacheType: SHMCB\n", r);
+        ap_rprintf(r, "CacheSharedMemory: %" APR_SIZE_T_FMT "\n",
+                   ctx->shm_size);
+        ap_rprintf(r, "CacheCurrentEntries: %d\n", total);
+        ap_rprintf(r, "CacheSubcaches: %d\n", header->subcache_num);
+        ap_rprintf(r, "CacheIndexesPerSubcaches: %d\n", header->index_num);
+        if (non_empty_subcaches) {
+            apr_time_t average_expiry = (apr_time_t)(expiry_total / (double)non_empty_subcaches);
+            if (now < average_expiry) {
+                ap_rprintf(r, "CacheTimeLeftOldestAvg: %d\n", (int)apr_time_sec(average_expiry - now));
+                ap_rprintf(r, "CacheTimeLeftOldestMin: %d\n", (int)apr_time_sec(min_expiry - now));
+                ap_rprintf(r, "CacheTimeLeftOldestMax: %d\n", (int)apr_time_sec(max_expiry - now));
+            }
+        }
+
+        ap_rprintf(r, "CacheIndexUsage: %d%%\n", index_pct);
+        ap_rprintf(r, "CacheUsage: %d%%\n", cache_pct);
+        ap_rprintf(r, "CacheStoreCount: %lu\n", header->stat_stores);
+        ap_rprintf(r, "CacheReplaceCount: %lu\n", header->stat_replaced);
+        ap_rprintf(r, "CacheExpireCount: %lu\n", header->stat_expiries);
+        ap_rprintf(r, "CacheDiscardCount: %lu\n", header->stat_scrolled);
+        ap_rprintf(r, "CacheRetrieveHitCount: %lu\n", header->stat_retrieves_hit);
+        ap_rprintf(r, "CacheRetrieveMissCount: %lu\n", header->stat_retrieves_miss);
+        ap_rprintf(r, "CacheRemoveHitCount: %lu\n", header->stat_removes_hit);
+        ap_rprintf(r, "CacheRemoveMissCount: %lu\n", header->stat_removes_miss);
+    }
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(00841) "leaving shmcb_status");
 }
 
@@ -855,6 +902,7 @@ static int shmcb_subcache_retrieve(server_rec *s, SHMCBHeader *header,
             else {
                 /* Already stale, quietly remove and treat as not-found */
                 idx->removed = 1;
+                header->stat_expiries++;
                 ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(00850)
                              "shmcb_subcache_retrieve discarding expired entry");
                 return -1;
@@ -978,6 +1026,7 @@ static apr_status_t shmcb_subcache_iterate(ap_socache_instance_t *instance,
             else {
                 /* Already stale, quietly remove and treat as not-found */
                 idx->removed = 1;
+                header->stat_expiries++;
                 ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, APLOGNO(00856)
                              "shmcb_subcache_iterate discarding expired entry");
             }

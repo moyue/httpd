@@ -71,10 +71,11 @@
         <td>The percent sign.</td></tr>
 
     <tr><td><code>%a</code></td>
-        <td>Client IP address and port of the request.</td></tr>
+        <td>Client IP address of the request (see the
+        <module>mod_remoteip</module> module).</td></tr>
 
     <tr><td><code>%{c}a</code></td>
-        <td>Underlying peer IP address and port of the connection (see the
+        <td>Underlying peer IP address of the connection (see the
         <module>mod_remoteip</module> module).</td></tr>
 
     <tr><td><code>%A</code></td>
@@ -215,6 +216,15 @@
     <tr><td><code>%T</code></td>
         <td>The time taken to serve the request, in seconds.</td></tr>
 
+    <tr><td><code>%{<var>UNIT</var>}T</code></td>
+        <td>The time taken to serve the request, in a time unit given by
+        <code>UNIT</code>. Valid units are <code>ms</code> for milliseconds,
+        <code>us</code> for microseconds, and <code>s</code> for seconds.
+        Using <code>s</code> gives the same result as <code>%T</code>
+        without any format; using <code>us</code> gives the same result
+        as <code>%D</code>. Combining <code>%T</code> with a unit is
+        available in 2.4.13 and later.</td></tr>
+
     <tr><td><code>%u</code></td>
         <td>Remote user if the request was authenticated. May be bogus if return status
         (<code>%s</code>) is 401 (unauthorized).</td></tr>
@@ -252,8 +262,23 @@
         You need to enable <module>mod_logio</module> to use this.</td></tr>
 
     <tr><td><code>%O</code></td>
-        <td>Bytes sent, including headers. Cannot be zero. You need to
+        <td>Bytes sent, including headers. May be zero in rare cases
+        such as when a request is aborted before a response is sent.
+        You need to enable <module>mod_logio</module> to use this.</td></tr>
+
+    <tr><td><code>%S</code></td>
+        <td>Bytes transferred (received and sent), including request and headers,
+        cannot be zero. This is the combination of %I and %O. You need to
         enable <module>mod_logio</module> to use this.</td></tr>
+
+    <tr><td><code>%{<var>VARNAME</var>}^ti</code></td>
+        <td>The contents of <code><var>VARNAME</var>:</code> trailer line(s)
+        in the request sent to the server.  </td></tr>
+
+    <tr><td><code>%{<var>VARNAME</var>}^to</code></td>
+        <td>The contents of <code><var>VARNAME</var>:</code> trailer line(s)
+        in the response sent from the server.  </td></tr>
+
     </table>
 
     <section id="modifiers"><title>Modifiers</title>
@@ -261,7 +286,7 @@
       <p>Particular items can be restricted to print only for
       responses with specific HTTP status codes by placing a
       comma-separated list of status codes immediately following the
-      "%". The status code list may be peceded by a "<code>!</code>" to
+      "%". The status code list may be preceded by a "<code>!</code>" to
       indicate negation.</p>
 
     <table border="1" style="zebra">
@@ -311,7 +336,7 @@
       prior to 2.0.46, no escaping was performed on these strings so
       you had to be quite careful when dealing with raw log files.</p>
 
-      <p>In httpd 2.0, unlike 1.3, the <code>%b</code> and
+      <p>Since httpd 2.0, unlike 1.3, the <code>%b</code> and
       <code>%B</code> format strings do not represent the number of
       bytes sent to the client, but simply the size in bytes of the
       HTTP response (which will differ, for instance, if the
@@ -324,6 +349,14 @@
       quick-handler and not as a standard handler. Therefore, the
       <code>%R</code> format string will not return any handler
       information when content caching is involved.</p>
+      </note>
+
+      <note>
+      <p>Note: The '^' character at the start of three-character formats
+      has no significance, but it must be the first character of any newly
+      added three-character format to avoid potential conflicts with log
+      formats that use literals adjacent to a format specifier, such as
+      "%Dus".</p>
       </note>
 
     </section>
@@ -376,7 +409,6 @@
 <syntax>BufferedLogs On|Off</syntax>
 <default>BufferedLogs Off</default>
 <contextlist><context>server config</context></contextlist>
-<compatibility>Available in versions 2.0.41 and later.</compatibility>
 
 <usage>
     <p>The <directive>BufferedLogs</directive> directive causes
@@ -395,7 +427,7 @@
 <directivesynopsis>
 <name>CustomLog</name>
 <description>Sets filename and format of log file</description>
-<syntax>CustomLog  <var>file</var>|<var>pipe</var>
+<syntax>CustomLog  <var>file</var>|<var>pipe</var>|<var>provider</var>
 <var>format</var>|<var>nickname</var>
 [env=[!]<var>environment-variable</var>|
 expr=<var>expression</var>]</syntax>
@@ -434,6 +466,20 @@ expr=<var>expression</var>]</syntax>
         may allow the use of back slashes. In general it is a good idea to always
         use forward slashes throughout the configuration files.</p>
       </note></dd>
+      <dt><var>provider</var></dt>
+      <dd>Modules implementing ErrorLog providers can also be used as a target
+      for CustomLog messages. To use ErrorLog provider as a target,
+      "provider:argument" syntax must be used. You can for example use
+      <module>mod_journald</module> or <module>mod_syslog</module>
+      as a provider:
+    <highlight language="config">
+# CustomLog logging to journald
+CustomLog "journald" "%h %l %u %t \"%r\" %&gt;s %b"
+
+# CustomLog logging to syslog with "user" facility
+CustomLog "syslog:user" "%h %l %u %t \"%r\" %&gt;s %b"
+    </highlight>
+      </dd>
     </dl>
 
     <p>The second argument specifies what will be written to the
@@ -445,14 +491,14 @@ expr=<var>expression</var>]</syntax>
     <p>For example, the following two sets of directives have
     exactly the same effect:</p>
 
-    <example>
-      # CustomLog with format nickname<br />
-      LogFormat "%h %l %u %t \"%r\" %&gt;s %b" common<br />
-      CustomLog logs/access_log common<br />
-      <br />
-      # CustomLog with explicit format string<br />
-      CustomLog logs/access_log "%h %l %u %t \"%r\" %&gt;s %b"
-    </example>
+    <highlight language="config">
+# CustomLog with format nickname
+LogFormat "%h %l %u %t \"%r\" %&gt;s %b" common
+CustomLog "logs/access_log" common
+
+# CustomLog with explicit format string
+CustomLog "logs/access_log" "%h %l %u %t \"%r\" %&gt;s %b"
+    </highlight>
 
     <p>The third argument is optional and controls whether or
     not to log a particular request. The condition can be the
@@ -461,7 +507,8 @@ expr=<var>expression</var>]</syntax>
     <a href="../env.html">environment</a>. Alternatively, the condition
     can be expressed as arbitrary boolean <a href="../expr.html"
     >expression</a>. If the condition is not satisfied, the request
-    will not be logged.</p>
+    will not be logged. References to HTTP headers  in the expression
+    will not cause the header names to be added to the Vary header.</p>
 
     <p>Environment variables can be set on a per-request
     basis using the <module>mod_setenvif</module>
@@ -470,19 +517,19 @@ expr=<var>expression</var>]</syntax>
     images on your server in a separate logfile but not in your main
     log, you can use:</p>
 
-    <example>
-      SetEnvIf Request_URI \.gif$ gif-image<br />
-      CustomLog gif-requests.log common env=gif-image<br />
-      CustomLog nongif-requests.log common env=!gif-image
-    </example>
+    <highlight language="config">
+SetEnvIf Request_URI \.gif$ gif-image
+CustomLog "gif-requests.log" common env=gif-image
+CustomLog "nongif-requests.log" common env=!gif-image
+    </highlight>
 
     <p>Or, to reproduce the behavior of the old RefererIgnore
     directive, you might use the following:</p>
 
-    <example>
-    SetEnvIf Referer example\.com localreferer<br />
-    CustomLog referer.log referer env=!localreferer
-    </example>
+    <highlight language="config">
+SetEnvIf Referer example\.com localreferer
+CustomLog "referer.log" referer env=!localreferer
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -526,8 +573,11 @@ expr=<var>expression</var>]</syntax>
     percent signs (<code>%</code>).</p>
 
     <example><title>Example</title>
+    <highlight language="config">
       LogFormat "%v %h %l %u %t \"%r\" %&gt;s %b" vhost_common
+      </highlight>
     </example>
+
 </usage>
 </directivesynopsis>
 
@@ -549,10 +599,42 @@ expr=<var>expression</var>]</syntax>
     other format has been specified.</p>
 
     <example><title>Example</title>
-      LogFormat "%h %l %u %t \"%r\" %&gt;s %b \"%{Referer}i\" \"%{User-agent}i\""<br />
-      TransferLog logs/access_log
+    <highlight language="config">
+LogFormat "%h %l %u %t \"%r\" %&gt;s %b \"%{Referer}i\" \"%{User-agent}i\""
+TransferLog "logs/access_log"
+      </highlight>
     </example>
 </usage>
 </directivesynopsis>
+
+<directivesynopsis>
+<name>GlobalLog</name>
+<description>Sets filename and format of log file</description>
+<syntax>GlobalLog  <var>file</var>|<var>pipe</var>|<var>provider</var>
+<var>format</var>|<var>nickname</var>
+[env=[!]<var>environment-variable</var>|
+expr=<var>expression</var>]</syntax>
+<contextlist><context>server config</context>
+</contextlist>
+<compatibility>Available in Apache HTTP Server 2.4.19 and later</compatibility>
+
+<usage>
+
+    <p>The <directive>GlobalLog</directive> directive defines a log shared
+       by the main server configuration and all defined virtual hosts.</p>
+
+    <p>The <directive>GlobalLog</directive> directive is identical to
+    the <directive>CustomLog</directive> directive, apart from the following
+    differences:</p>
+    <ul>
+       <li><directive>GlobalLog</directive> is not valid in virtual host
+            context.</li>
+       <li><directive>GlobalLog</directive> is used by virtual hosts that
+           define their own <directive>CustomLog</directive>, unlike a 
+           globally specified <directive>CustomLog</directive>.</li>
+    </ul>
+</usage>
+</directivesynopsis>
+
 
 </modulesynopsis>

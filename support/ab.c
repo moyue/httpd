@@ -170,6 +170,14 @@
 #define SK_VALUE(x,y) sk_X509_value(x,y)
 typedef STACK_OF(X509) X509_STACK_TYPE;
 
+#if defined(_MSC_VER)
+/* The following logic ensures we correctly glue FILE* within one CRT used
+ * by the OpenSSL library build to another CRT used by the ab.exe build.
+ * This became especially problematic with Visual Studio 2015.
+ */
+#include <openssl/applink.c>
+#endif
+
 #endif
 
 #if defined(USE_SSL)
@@ -182,6 +190,12 @@ typedef STACK_OF(X509) X509_STACK_TYPE;
 #define AB_SSL_CIPHER_CONST const
 #else
 #define AB_SSL_CIPHER_CONST
+#endif
+#ifdef SSL_OP_NO_TLSv1_2
+#define HAVE_TLSV1_X
+#endif
+#if !defined(OPENSSL_NO_TLSEXT) && defined(SSL_set_tlsext_host_name)
+#define HAVE_TLSEXT
 #endif
 #endif
 
@@ -217,7 +231,7 @@ typedef enum {
     STATE_READ
 } connect_state_e;
 
-#define CBUFFSIZE (2048)
+#define CBUFFSIZE (8192)
 
 struct connection {
     apr_pool_t *ctx;
@@ -263,13 +277,14 @@ struct data {
 
 int verbosity = 0;      /* no verbosity by default */
 int recverrok = 0;      /* ok to proceed after socket receive errors */
-enum {NO_METH = 0, GET, HEAD, PUT, POST} method = NO_METH;
-const char *method_str[] = {"bug", "GET", "HEAD", "PUT", "POST"};
+enum {NO_METH = 0, GET, HEAD, PUT, POST, CUSTOM_METHOD} method = NO_METH;
+const char *method_str[] = {"bug", "GET", "HEAD", "PUT", "POST", ""};
 int send_body = 0;      /* non-zero if sending body with request */
 int requests = 1;       /* Number of requests to make */
 int heartbeatres = 100; /* How often do we say we're alive */
 int concurrency = 1;    /* Number of multiple requests to make */
 int percentile = 1;     /* Show percentile served */
+int nolength = 0;       /* Accept variable document length */
 int confidence = 1;     /* Show confidence estimator and warnings */
 int tlimit = 0;         /* time limit in secs */
 int keepalive = 0;      /* try and do keepalive connections */
@@ -278,29 +293,27 @@ char servername[1024];  /* name that server reports */
 char *hostname;         /* host name from URL */
 const char *host_field;       /* value of "Host:" header field */
 const char *path;             /* path name */
-char postfile[1024];    /* name of file containing post data */
 char *postdata;         /* *buffer containing data from postfile */
 apr_size_t postlen = 0; /* length of data to be POSTed */
-char content_type[1024];/* content type to put in POST header */
+char *content_type = NULL;     /* content type to put in POST header */
 const char *cookie,           /* optional cookie line */
            *auth,             /* optional (basic/uuencoded) auhentication */
            *hdrs;             /* optional arbitrary headers */
 apr_port_t port;        /* port number */
-char proxyhost[1024];   /* proxy host name */
+char *proxyhost = NULL; /* proxy host name */
 int proxyport = 0;      /* proxy port */
 const char *connecthost;
 const char *myhost;
 apr_port_t connectport;
 const char *gnuplot;          /* GNUplot file */
 const char *csvperc;          /* CSV Percentile file */
-char url[1024];
 const char *fullurl;
 const char *colonhost;
 int isproxy = 0;
 apr_interval_time_t aprtimeout = apr_time_from_sec(30); /* timeout value */
 
 /* overrides for ab-generated common headers */
-int opt_host = 0;       /* was an optional "Host:" header specified? */
+const char *opt_host;   /* which optional "Host:" header specified, if any */
 int opt_useragent = 0;  /* was an optional "User-Agent:" header specified? */
 int opt_accept = 0;     /* was an optional "Accept:" header specified? */
  /*
@@ -332,15 +345,21 @@ int is_ssl;
 SSL_CTX *ssl_ctx;
 char *ssl_cipher = NULL;
 char *ssl_info = NULL;
+char *ssl_tmp_key = NULL;
 BIO *bio_out,*bio_err;
+#ifdef HAVE_TLSEXT
+int tls_use_sni = 1;         /* used by default, -I disables it */
+const char *tls_sni = NULL; /* 'opt_host' if any, 'hostname' otherwise */
+#endif
 #endif
 
 apr_time_t start, lasttime, stoptime;
 
 /* global request (and its length) */
-char _request[2048];
+char _request[8192];
 char *request = _request;
 apr_size_t reqlen;
+int requests_initialized = 0;
 
 /* one global throw-away buffer to read stuff into */
 char buffer[8192];
@@ -388,6 +407,83 @@ static void apr_err(const char *s, apr_status_t rv)
     if (done)
         printf("Total of %d requests completed\n" , done);
     exit(rv);
+}
+
+static void *xmalloc(size_t size)
+{
+    void *ret = malloc(size);
+    if (ret == NULL) {
+        fprintf(stderr, "Could not allocate memory (%"
+                APR_SIZE_T_FMT" bytes)\n", size);
+        exit(1);
+    }
+    return ret;
+}
+
+static void *xcalloc(size_t num, size_t size)
+{
+    void *ret = calloc(num, size);
+    if (ret == NULL) {
+        fprintf(stderr, "Could not allocate memory (%"
+                APR_SIZE_T_FMT" bytes)\n", size*num);
+        exit(1);
+    }
+    return ret;
+}
+
+static char *xstrdup(const char *s)
+{
+    char *ret = strdup(s);
+    if (ret == NULL) {
+        fprintf(stderr, "Could not allocate memory (%"
+                APR_SIZE_T_FMT " bytes)\n", strlen(s));
+        exit(1);
+    }
+    return ret;
+}
+
+/*
+ * Similar to standard strstr() but we ignore case in this version.
+ * Copied from ap_strcasestr().
+ */
+static char *xstrcasestr(const char *s1, const char *s2)
+{
+    char *p1, *p2;
+    if (*s2 == '\0') {
+        /* an empty s2 */
+        return((char *)s1);
+    }
+    while(1) {
+        for ( ; (*s1 != '\0') && (apr_tolower(*s1) != apr_tolower(*s2)); s1++);
+        if (*s1 == '\0') {
+            return(NULL);
+        }
+        /* found first character of s2, see if the rest matches */
+        p1 = (char *)s1;
+        p2 = (char *)s2;
+        for (++p1, ++p2; apr_tolower(*p1) == apr_tolower(*p2); ++p1, ++p2) {
+            if (*p1 == '\0') {
+                /* both strings ended together */
+                return((char *)s1);
+            }
+        }
+        if (*p2 == '\0') {
+            /* second string ended, a match */
+            break;
+        }
+        /* didn't find a match here, try starting at next character in s1 */
+        s1++;
+    }
+    return((char *)s1);
+}
+
+/* pool abort function */
+static int abort_on_oom(int retcode)
+{
+    fprintf(stderr, "Could not allocate memory\n");
+    exit(1);
+    /* not reached */
+    return retcode;
 }
 
 static void set_polled_events(struct connection *c, apr_int16_t new_reqevents)
@@ -525,6 +621,8 @@ static int ssl_print_connection_info(BIO *bio, SSL *ssl)
     AB_SSL_CIPHER_CONST SSL_CIPHER *c;
     int alg_bits,bits;
 
+    BIO_printf(bio,"Transport Protocol      :%s\n", SSL_get_version(ssl));
+
     c = SSL_get_current_cipher(ssl);
     BIO_printf(bio,"Cipher Suite Protocol   :%s\n", SSL_CIPHER_get_version(c));
     BIO_printf(bio,"Cipher Suite Name       :%s\n",SSL_CIPHER_get_name(c));
@@ -621,11 +719,46 @@ static void ssl_proceed_handshake(struct connection *c)
                 else
                     pk_bits = 0;  /* Anon DH */
 
-                ssl_info = malloc(128);
+                ssl_info = xmalloc(128);
                 apr_snprintf(ssl_info, 128, "%s,%s,%d,%d",
-                             SSL_CIPHER_get_version(ci),
+                             SSL_get_version(c->ssl),
                              SSL_CIPHER_get_name(ci),
                              pk_bits, sk_bits);
+            }
+            if (ssl_tmp_key == NULL) {
+                EVP_PKEY *key;
+                if (SSL_get_server_tmp_key(c->ssl, &key)) {
+                    ssl_tmp_key = xmalloc(128);
+                    switch (EVP_PKEY_id(key)) {
+                    case EVP_PKEY_RSA:
+                        apr_snprintf(ssl_tmp_key, 128, "RSA %d bits",
+                                     EVP_PKEY_bits(key));
+                        break;
+                    case EVP_PKEY_DH:
+                        apr_snprintf(ssl_tmp_key, 128, "DH %d bits",
+                                     EVP_PKEY_bits(key));
+                        break;
+#ifndef OPENSSL_NO_EC
+                    case EVP_PKEY_EC: {
+                        const char *cname = NULL;
+                        EC_KEY *ec = EVP_PKEY_get1_EC_KEY(key);
+                        int nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(ec));
+                        EC_KEY_free(ec);
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+                        cname = EC_curve_nid2nist(nid);
+#endif
+                        if (!cname)
+                            cname = OBJ_nid2sn(nid);
+
+                        apr_snprintf(ssl_tmp_key, 128, "ECDH %s %d bits",
+                                     cname,
+                                     EVP_PKEY_bits(key));
+                        break;
+                        }
+#endif
+                    }
+                    EVP_PKEY_free(key);
+                }
             }
             write_request(c);
             do_next = 0;
@@ -676,6 +809,7 @@ static void write_request(struct connection * c)
             c->rwrite = reqlen;
             if (send_body)
                 c->rwrite += postlen;
+            l = c->rwrite;
         }
         else if (tnow > c->connect + aprtimeout) {
             printf("Send request timed out!\n");
@@ -775,10 +909,21 @@ static void output_results(int sig)
     if (is_ssl && ssl_info) {
         printf("SSL/TLS Protocol:       %s\n", ssl_info);
     }
+    if (is_ssl && ssl_tmp_key) {
+        printf("Server Temp Key:        %s\n", ssl_tmp_key);
+    }
+#ifdef HAVE_TLSEXT
+    if (is_ssl && tls_sni) {
+        printf("TLS Server Name:        %s\n", tls_sni);
+    }
+#endif
 #endif
     printf("\n");
     printf("Document Path:          %s\n", path);
-    printf("Document Length:        %" APR_SIZE_T_FMT " bytes\n", doclen);
+    if (nolength)
+        printf("Document Length:        Variable\n");
+    else
+        printf("Document Length:        %" APR_SIZE_T_FMT " bytes\n", doclen);
     printf("\n");
     printf("Concurrency Level:      %d\n", concurrency);
     printf("Time taken for tests:   %.3f seconds\n", timetaken);
@@ -787,7 +932,8 @@ static void output_results(int sig)
     if (bad)
         printf("   (Connect: %d, Receive: %d, Length: %d, Exceptions: %d)\n",
             err_conn, err_recv, err_length, err_except);
-    printf("Write errors:           %d\n", epipe);
+    if (epipe)
+        printf("Write errors:           %d\n", epipe);
     if (err_response)
         printf("Non-2xx responses:      %d\n", err_response);
     if (keepalive)
@@ -810,9 +956,9 @@ static void output_results(int sig)
                (double) totalread / 1024 / timetaken);
         if (send_body) {
             printf("                        %.2f kb/s sent\n",
-               (double) totalposted / timetaken / 1024);
+               (double) totalposted / 1024 / timetaken);
             printf("                        %.2f kb/s total\n",
-               (double) (totalread + totalposted) / timetaken / 1024);
+               (double) (totalread + totalposted) / 1024 / timetaken);
         }
     }
 
@@ -960,9 +1106,8 @@ static void output_results(int sig)
             printf("              min   avg   max\n");
 #define CONF_FMT_STRING "%5" APR_TIME_T_FMT " %5" APR_TIME_T_FMT "%5" APR_TIME_T_FMT "\n"
             printf("Connect:    " CONF_FMT_STRING, mincon, meancon, maxcon);
-            printf("Processing: " CONF_FMT_STRING, mintot - mincon,
-                                                   meantot - meancon,
-                                                   maxtot - maxcon);
+            printf("Processing: " CONF_FMT_STRING, mind, meand, maxd);
+            printf("Waiting:    " CONF_FMT_STRING, minwait, meanwait, maxwait);
             printf("Total:      " CONF_FMT_STRING, mintot, meantot, maxtot);
 #undef CONF_FMT_STRING
         }
@@ -979,7 +1124,7 @@ static void output_results(int sig)
                            ap_round_ms(stats[done - 1].time));
                 else
                     printf("  %d%%  %5" APR_TIME_T_FMT "\n", percs[i],
-                           ap_round_ms(stats[(int) (done * percs[i] / 100)].time));
+                           ap_round_ms(stats[(unsigned long)done * percs[i] / 100].time));
             }
         }
         if (csvperc) {
@@ -989,14 +1134,14 @@ static void output_results(int sig)
                 exit(1);
             }
             fprintf(out, "" "Percentage served" "," "Time in ms" "\n");
-            for (i = 0; i < 100; i++) {
+            for (i = 0; i <= 100; i++) {
                 double t;
                 if (i == 0)
                     t = ap_double_ms(stats[0].time);
                 else if (i == 100)
                     t = ap_double_ms(stats[done - 1].time);
                 else
-                    t = ap_double_ms(stats[(int) (0.5 + done * i / 100.0)].time);
+                    t = ap_double_ms(stats[(unsigned long) (0.5 + (double)done * i / 100.0)].time);
                 fprintf(out, "%d,%.3f\n", i, t);
             }
             fclose(out);
@@ -1050,9 +1195,14 @@ static void output_html_results(void)
     printf("<tr %s><th colspan=2 %s>Document Path:</th>"
        "<td colspan=2 %s>%s</td></tr>\n",
        trstring, tdstring, tdstring, path);
-    printf("<tr %s><th colspan=2 %s>Document Length:</th>"
-       "<td colspan=2 %s>%" APR_SIZE_T_FMT " bytes</td></tr>\n",
-       trstring, tdstring, tdstring, doclen);
+    if (nolength)
+        printf("<tr %s><th colspan=2 %s>Document Length:</th>"
+            "<td colspan=2 %s>Variable</td></tr>\n",
+            trstring, tdstring, tdstring);
+    else
+        printf("<tr %s><th colspan=2 %s>Document Length:</th>"
+            "<td colspan=2 %s>%" APR_SIZE_T_FMT " bytes</td></tr>\n",
+            trstring, tdstring, tdstring, doclen);
     printf("<tr %s><th colspan=2 %s>Concurrency Level:</th>"
        "<td colspan=2 %s>%d</td></tr>\n",
        trstring, tdstring, tdstring, concurrency);
@@ -1095,16 +1245,16 @@ static void output_html_results(void)
            trstring, tdstring, tdstring, (double) done / timetaken);
         printf("<tr %s><th colspan=2 %s>Transfer rate:</th>"
            "<td colspan=2 %s>%.2f kb/s received</td></tr>\n",
-           trstring, tdstring, tdstring, (double) totalread / timetaken);
+           trstring, tdstring, tdstring, (double) totalread / 1024 / timetaken);
         if (send_body) {
             printf("<tr %s><td colspan=2 %s>&nbsp;</td>"
                "<td colspan=2 %s>%.2f kb/s sent</td></tr>\n",
                trstring, tdstring, tdstring,
-               (double) totalposted / timetaken);
+               (double) totalposted / 1024 / timetaken);
             printf("<tr %s><td colspan=2 %s>&nbsp;</td>"
                "<td colspan=2 %s>%.2f kb/s total</td></tr>\n",
                trstring, tdstring, tdstring,
-               (double) (totalread + totalposted) / timetaken);
+               (double) (totalread + totalposted) / 1024 / timetaken);
         }
     }
     {
@@ -1168,7 +1318,7 @@ static void start_connect(struct connection * c)
     apr_status_t rv;
 
     if (!(started < requests))
-    return;
+        return;
 
     c->read = 0;
     c->bread = 0;
@@ -1186,8 +1336,10 @@ static void start_connect(struct connection * c)
     apr_err("socket", rv);
     }
 
-    if ((rv = apr_socket_bind(c->aprsock, mysa)) != APR_SUCCESS) {
-        apr_err("bind", rv);
+    if (myhost) {
+        if ((rv = apr_socket_bind(c->aprsock, mysa)) != APR_SUCCESS) {
+            apr_err("bind", rv);
+        }
     }
 
     c->pollfd.desc_type = APR_POLL_SOCKET;
@@ -1233,6 +1385,11 @@ static void start_connect(struct connection * c)
             BIO_set_callback(bio, ssl_print_cb);
             BIO_set_callback_arg(bio, (void *)bio_err);
         }
+#ifdef HAVE_TLSEXT
+        if (tls_sni) {
+            SSL_set_tlsext_host_name(c->ssl, tls_sni);
+        }
+#endif
     } else {
         c->ssl = NULL;
     }
@@ -1246,11 +1403,17 @@ static void start_connect(struct connection * c)
         else {
             set_conn_state(c, STATE_UNCONNECTED);
             apr_socket_close(c->aprsock);
-            err_conn++;
-            if (bad++ > 10) {
+            if (good == 0 && destsa->next) {
+                destsa = destsa->next;
+                err_conn = 0;
+            }
+            else if (bad++ > 10) {
                 fprintf(stderr,
                    "\nTest aborted after 10 failures\n\n");
                 apr_err("apr_socket_connect()", rv);
+            }
+            else {
+                err_conn++;
             }
 
             start_connect(c);
@@ -1288,7 +1451,7 @@ static void close_connection(struct connection * c)
             /* first time here */
             doclen = c->bread;
         }
-        else if (c->bread != doclen) {
+        else if ((c->bread != doclen) && !nolength) {
             bad++;
             err_length++;
         }
@@ -1332,6 +1495,7 @@ static void read_connection(struct connection * c)
     apr_status_t status;
     char *part;
     char respcode[4];       /* 3 digits and null */
+    int i;
 
     r = sizeof(buffer);
 #ifdef USE_SSL
@@ -1345,11 +1509,28 @@ static void read_connection(struct connection * c)
                 good++;
                 close_connection(c);
             }
+            else if (scode == SSL_ERROR_SYSCALL
+                     && status == 0
+                     && c->read != 0) {
+                /* connection closed, but in violation of the protocol, after
+                 * some data has already been read; this commonly happens, so
+                 * let the length check catch any response errors
+                 */
+                good++;
+                close_connection(c);
+            }
+            else if (scode == SSL_ERROR_SYSCALL 
+                     && c->read == 0
+                     && destsa->next
+                     && c->state == STATE_CONNECTING
+                     && good == 0) {
+                return;
+            }
             else if (scode != SSL_ERROR_WANT_WRITE
                      && scode != SSL_ERROR_WANT_READ) {
                 /* some fatal error: */
                 c->read = 0;
-                BIO_printf(bio_err, "SSL read failed - closing connection\n");
+                BIO_printf(bio_err, "SSL read failed (%d) - closing connection\n", scode);
                 ERR_print_errors(bio_err);
                 close_connection(c);
             }
@@ -1370,8 +1551,8 @@ static void read_connection(struct connection * c)
         }
         /* catch legitimate fatal apr_socket_recv errors */
         else if (status != APR_SUCCESS) {
-            err_recv++;
             if (recverrok) {
+                err_recv++;
                 bad++;
                 close_connection(c);
                 if (verbosity >= 1) {
@@ -1379,7 +1560,12 @@ static void read_connection(struct connection * c)
                     fprintf(stderr,"%s: %s (%d)\n", "apr_socket_recv", apr_strerror(status, buf, sizeof buf), status);
                 }
                 return;
-            } else {
+            } else if (destsa->next && c->state == STATE_CONNECTING
+                       && c->read == 0 && good == 0) {
+                return;
+            }
+            else {
+                err_recv++;
                 apr_err("apr_socket_recv", status);
             }
         }
@@ -1449,12 +1635,14 @@ static void read_connection(struct connection * c)
                  * this is first time, extract some interesting info
                  */
                 char *p, *q;
-                p = strstr(c->cbuff, "Server:");
+                size_t len = 0;
+                p = xstrcasestr(c->cbuff, "Server:");
                 q = servername;
                 if (p) {
                     p += 8;
-                    while (*p > 32)
-                    *q++ = *p++;
+                    /* -1 to not overwrite last '\0' byte */
+                    while (*p > 32 && len++ < sizeof(servername) - 1)
+                        *q++ = *p++;
                 }
                 *q = 0;
             }
@@ -1485,27 +1673,30 @@ static void read_connection(struct connection * c)
             }
             c->gotheader = 1;
             *s = 0;     /* terminate at end of header */
-            if (keepalive &&
-            (strstr(c->cbuff, "Keep-Alive")
-             || strstr(c->cbuff, "keep-alive"))) {  /* for benefit of MSIIS */
+            if (keepalive && xstrcasestr(c->cbuff, "Keep-Alive")) {
                 char *cl;
-                cl = strstr(c->cbuff, "Content-Length:");
-                /* handle NCSA, which sends Content-length: */
-                if (!cl)
-                    cl = strstr(c->cbuff, "Content-length:");
-                if (cl) {
-                    c->keepalive = 1;
+                c->keepalive = 1;
+                cl = xstrcasestr(c->cbuff, "Content-Length:");
+                if (cl && method != HEAD) {
                     /* response to HEAD doesn't have entity body */
-                    c->length = method != HEAD ? atoi(cl + 16) : 0;
+                    c->length = atoi(cl + 16);
                 }
-                /* The response may not have a Content-Length header */
-                if (!cl) {
-                    c->keepalive = 1;
+                else {
                     c->length = 0;
                 }
             }
             c->bread += c->cbx - (s + l - c->cbuff) + r - tocopy;
             totalbread += c->bread;
+
+            /* We have received the header, so we know this destination socket
+             * address is working, so initialize all remaining requests. */
+            if (!requests_initialized) {
+                for (i = 1; i < concurrency; i++) {
+                    con[i].socknum = i;
+                    start_connect(&con[i]);
+                }
+                requests_initialized = 1;
+            }
         }
     }
     else {
@@ -1522,7 +1713,7 @@ static void read_connection(struct connection * c)
             /* first time here */
             doclen = c->bread;
         }
-        else if (c->bread != doclen) {
+        else if ((c->bread != doclen) && !nolength) {
             bad++;
             err_length++;
         }
@@ -1584,16 +1775,13 @@ static void test(void)
     fflush(stdout);
     }
 
-    con = calloc(concurrency, sizeof(struct connection));
+    con = xcalloc(concurrency, sizeof(struct connection));
 
     /*
      * XXX: a way to calculate the stats without requiring O(requests) memory
      * XXX: would be nice.
      */
-    stats = calloc(requests, sizeof(struct data));
-    if (stats == NULL || con == NULL) {
-        err("Cannot allocate memory for result statistics");
-    }
+    stats = xcalloc(requests, sizeof(struct data));
 
     if ((status = apr_pollset_create(&readbits, concurrency, cntxt,
                                      APR_POLLSET_NOCOPY)) != APR_SUCCESS) {
@@ -1608,6 +1796,18 @@ static void test(void)
     else {
         /* Header overridden, no need to add, as it is already in hdrs */
     }
+
+#ifdef HAVE_TLSEXT
+    if (is_ssl && tls_use_sni) {
+        apr_ipsubnet_t *ip;
+        if (((tls_sni = opt_host) || (tls_sni = hostname)) &&
+            (!*tls_sni || apr_ipsubnet_create(&ip, tls_sni, NULL,
+                                               cntxt) == APR_SUCCESS)) {
+            /* IP not allowed in TLS SNI extension */
+            tls_sni = NULL;
+        }
+    }
+#endif
 
     if (!opt_useragent) {
         /* User-Agent: header not overridden, add default value to hdrs */
@@ -1649,7 +1849,7 @@ static void test(void)
             keepalive ? "Connection: Keep-Alive\r\n" : "",
             cookie, auth,
             postlen,
-            (content_type[0]) ? content_type : "text/plain", hdrs);
+            (content_type != NULL) ? content_type : "text/plain", hdrs);
     }
     if (snprintf_res >= sizeof(_request)) {
         err("Request too long\n");
@@ -1665,11 +1865,7 @@ static void test(void)
      * Combine headers and (optional) post file into one continuous buffer
      */
     if (send_body) {
-        char *buff = malloc(postlen + reqlen + 1);
-        if (!buff) {
-            fprintf(stderr, "error creating request buffer: out of memory\n");
-            return;
-        }
+        char *buff = xmalloc(postlen + reqlen + 1);
         strcpy(buff, request);
         memcpy(buff + reqlen, postdata, postlen);
         request = buff;
@@ -1687,16 +1883,20 @@ static void test(void)
     }
 #endif              /* NOT_ASCII */
 
-    /* This only needs to be done once */
-    if ((rv = apr_sockaddr_info_get(&mysa, myhost, APR_UNSPEC, 0, 0, cntxt)) != APR_SUCCESS) {
-        char buf[120];
-        apr_snprintf(buf, sizeof(buf),
-                 "apr_sockaddr_info_get() for %s", myhost);
-        apr_err(buf, rv);
+    if (myhost) {
+        /* This only needs to be done once */
+        if ((rv = apr_sockaddr_info_get(&mysa, myhost, APR_UNSPEC, 0, 0, cntxt)) != APR_SUCCESS) {
+            char buf[120];
+            apr_snprintf(buf, sizeof(buf),
+                         "apr_sockaddr_info_get() for %s", myhost);
+            apr_err(buf, rv);
+        }
     }
 
     /* This too */
-    if ((rv = apr_sockaddr_info_get(&destsa, connecthost, APR_UNSPEC, connectport, 0, cntxt))
+    if ((rv = apr_sockaddr_info_get(&destsa, connecthost,
+                                    myhost ? mysa->family : APR_UNSPEC,
+                                    connectport, 0, cntxt))
        != APR_SUCCESS) {
         char buf[120];
         apr_snprintf(buf, sizeof(buf),
@@ -1713,11 +1913,10 @@ static void test(void)
     apr_signal(SIGINT, output_results);
 #endif
 
-    /* initialise lots of requests */
-    for (i = 0; i < concurrency; i++) {
-        con[i].socknum = i;
-        start_connect(&con[i]);
-    }
+    /* initialise first connection to determine destination socket address
+     * which should be used for next connections. */
+    con[0].socknum = 0;
+    start_connect(&con[0]);
 
     do {
         apr_int32_t n;
@@ -1765,14 +1964,20 @@ static void test(void)
             if ((rtnev & APR_POLLIN) || (rtnev & APR_POLLPRI) || (rtnev & APR_POLLHUP))
                 read_connection(c);
             if ((rtnev & APR_POLLERR) || (rtnev & APR_POLLNVAL)) {
-                bad++;
-                err_except++;
-                /* avoid apr_poll/EINPROGRESS loop on HP-UX, let recv discover ECONNREFUSED */
-                if (c->state == STATE_CONNECTING) {
-                    read_connection(c);
+                if (destsa->next && c->state == STATE_CONNECTING && good == 0) {
+                    destsa = destsa->next;
+                    start_connect(c);
                 }
                 else {
-                    start_connect(c);
+                    bad++;
+                    err_except++;
+                    /* avoid apr_poll/EINPROGRESS loop on HP-UX, let recv discover ECONNREFUSED */
+                    if (c->state == STATE_CONNECTING) {
+                        read_connection(c);
+                    }
+                    else {
+                        start_connect(c);
+                    }
                 }
                 continue;
             }
@@ -1851,13 +2056,16 @@ static void usage(const char *progname)
  */
     fprintf(stderr, "Options are:\n");
     fprintf(stderr, "    -n requests     Number of requests to perform\n");
-    fprintf(stderr, "    -c concurrency  Number of multiple requests to make\n");
-    fprintf(stderr, "    -t timelimit    Seconds to max. wait for responses\n");
+    fprintf(stderr, "    -c concurrency  Number of multiple requests to make at a time\n");
+    fprintf(stderr, "    -t timelimit    Seconds to max. to spend on benchmarking\n");
+    fprintf(stderr, "                    This implies -n 50000\n");
+    fprintf(stderr, "    -s timeout      Seconds to max. wait for each response\n");
+    fprintf(stderr, "                    Default is 30 seconds\n");
     fprintf(stderr, "    -b windowsize   Size of TCP send/receive buffer, in bytes\n");
     fprintf(stderr, "    -B address      Address to bind to when making outgoing connections\n");
     fprintf(stderr, "    -p postfile     File containing data to POST. Remember also to set -T\n");
     fprintf(stderr, "    -u putfile      File containing data to PUT. Remember also to set -T\n");
-    fprintf(stderr, "    -T content-type Content-type header for POSTing, eg.\n");
+    fprintf(stderr, "    -T content-type Content-type header to use for POST/PUT data, eg.\n");
     fprintf(stderr, "                    'application/x-www-form-urlencoded'\n");
     fprintf(stderr, "                    Default is 'text/plain'\n");
     fprintf(stderr, "    -v verbosity    How much troubleshooting info to print\n");
@@ -1878,17 +2086,39 @@ static void usage(const char *progname)
     fprintf(stderr, "    -k              Use HTTP KeepAlive feature\n");
     fprintf(stderr, "    -d              Do not show percentiles served table.\n");
     fprintf(stderr, "    -S              Do not show confidence estimators and warnings.\n");
+    fprintf(stderr, "    -q              Do not show progress when doing more than 150 requests\n");
+    fprintf(stderr, "    -l              Accept variable document length (use this for dynamic pages)\n");
     fprintf(stderr, "    -g filename     Output collected data to gnuplot format file.\n");
     fprintf(stderr, "    -e filename     Output CSV file with percentages served\n");
     fprintf(stderr, "    -r              Don't exit on socket receive errors.\n");
+    fprintf(stderr, "    -m method       Method name\n");
     fprintf(stderr, "    -h              Display usage information (this message)\n");
 #ifdef USE_SSL
-    fprintf(stderr, "    -Z ciphersuite  Specify SSL/TLS cipher suite (See openssl ciphers)\n");
+
 #ifndef OPENSSL_NO_SSL2
-    fprintf(stderr, "    -f protocol     Specify SSL/TLS protocol (SSL2, SSL3, TLS1, or ALL)\n");
+#define SSL2_HELP_MSG "SSL2, "
 #else
-    fprintf(stderr, "    -f protocol     Specify SSL/TLS protocol (SSL3, TLS1, or ALL)\n");
+#define SSL2_HELP_MSG ""
 #endif
+
+#ifndef OPENSSL_NO_SSL3
+#define SSL3_HELP_MSG "SSL3, "
+#else
+#define SSL3_HELP_MSG ""
+#endif
+
+#ifdef HAVE_TLSV1_X
+#define TLS1_X_HELP_MSG ", TLS1.1, TLS1.2"
+#else
+#define TLS1_X_HELP_MSG ""
+#endif
+
+#ifdef HAVE_TLSEXT
+    fprintf(stderr, "    -I              Disable TLS Server Name Indication (SNI) extension\n");
+#endif
+    fprintf(stderr, "    -Z ciphersuite  Specify SSL/TLS cipher suite (See openssl ciphers)\n");
+    fprintf(stderr, "    -f protocol     Specify SSL/TLS protocol\n");
+    fprintf(stderr, "                    (" SSL2_HELP_MSG SSL3_HELP_MSG "TLS1" TLS1_X_HELP_MSG " or ALL)\n");
 #endif
     exit(EINVAL);
 }
@@ -1988,11 +2218,7 @@ static apr_status_t open_postfile(const char *pfile)
         return rv;
     }
     postlen = (apr_size_t)finfo.size;
-    postdata = malloc(postlen);
-    if (!postdata) {
-        fprintf(stderr, "ab: Could not allocate POST data buffer\n");
-        return APR_ENOMEM;
-    }
+    postdata = xmalloc(postlen);
     rv = apr_file_read_full(postfd, postdata, postlen, NULL);
     if (rv != APR_SUCCESS) {
         fprintf(stderr, "ab: Could not read POST data file: %s\n",
@@ -2014,6 +2240,14 @@ int main(int argc, const char * const argv[])
     apr_getopt_t *opt;
     const char *opt_arg;
     char c;
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    int max_prot = TLS1_2_VERSION;
+#ifndef OPENSSL_NO_SSL3
+    int min_prot = SSL3_VERSION;
+#else
+    int min_prot = TLS1_VERSION;
+#endif
+#endif /* #if OPENSSL_VERSION_NUMBER >= 0x10100000L */
 #ifdef USE_SSL
     AB_SSL_METHOD_CONST SSL_METHOD *meth = SSLv23_client_method();
 #endif
@@ -2024,12 +2258,13 @@ int main(int argc, const char * const argv[])
     tdstring = "bgcolor=white";
     cookie = "";
     auth = "";
-    proxyhost[0] = '\0';
+    proxyhost = "";
     hdrs = "";
 
     apr_app_initialize(&argc, &argv, NULL);
     atexit(apr_terminate);
     apr_pool_create(&cntxt, NULL);
+    apr_pool_abort_set(abort_on_oom, cntxt);
 
 #ifdef NOT_ASCII
     status = apr_xlate_open(&to_ascii, "ISO-8859-1", APR_DEFAULT_CHARSET, cntxt);
@@ -2052,7 +2287,7 @@ int main(int argc, const char * const argv[])
     myhost = NULL; /* 0.0.0.0 or :: */
 
     apr_getopt_init(&opt, cntxt, argc, argv);
-    while ((status = apr_getopt(opt, "n:c:t:b:T:p:u:v:rkVhwix:y:z:C:H:P:A:g:X:de:SqB:"
+    while ((status = apr_getopt(opt, "n:c:t:s:b:T:p:u:v:lrkVhwiIx:y:z:C:H:P:A:g:X:de:SqB:m:"
 #ifdef USE_SSL
             "Z:f:"
 #endif
@@ -2082,16 +2317,19 @@ int main(int argc, const char * const argv[])
                 method = HEAD;
                 break;
             case 'g':
-                gnuplot = strdup(opt_arg);
+                gnuplot = xstrdup(opt_arg);
                 break;
             case 'd':
                 percentile = 0;
                 break;
             case 'e':
-                csvperc = strdup(opt_arg);
+                csvperc = xstrdup(opt_arg);
                 break;
             case 'S':
                 confidence = 0;
+                break;
+            case 's':
+                aprtimeout = apr_time_from_sec(atoi(opt_arg)); /* timeout value */
                 break;
             case 'p':
                 if (method != NO_METH)
@@ -2111,6 +2349,9 @@ int main(int argc, const char * const argv[])
                 method = PUT;
                 send_body = 1;
                 break;
+            case 'l':
+                nolength = 1;
+                break;
             case 'r':
                 recverrok = 1;
                 break;
@@ -2123,7 +2364,7 @@ int main(int argc, const char * const argv[])
                                              * something */
                 break;
             case 'T':
-                strcpy(content_type, opt_arg);
+                content_type = apr_pstrdup(cntxt, opt_arg);
                 break;
             case 'C':
                 cookie = apr_pstrcat(cntxt, "Cookie: ", opt_arg, "\r\n", NULL);
@@ -2165,7 +2406,16 @@ int main(int argc, const char * const argv[])
                  * allow override of some of the common headers that ab adds
                  */
                 if (strncasecmp(opt_arg, "Host:", 5) == 0) {
-                    opt_host = 1;
+                    char *host;
+                    apr_size_t len;
+                    opt_arg += 5;
+                    while (apr_isspace(*opt_arg))
+                        opt_arg++;
+                    len = strlen(opt_arg);
+                    host = strdup(opt_arg);
+                    while (len && apr_isspace(host[len-1]))
+                        host[--len] = '\0';
+                    opt_host = host;
                 } else if (strncasecmp(opt_arg, "Accept:", 7) == 0) {
                     opt_accept = 1;
                 } else if (strncasecmp(opt_arg, "User-Agent:", 11) == 0) {
@@ -2194,7 +2444,7 @@ int main(int argc, const char * const argv[])
                         p++;
                         proxyport = atoi(p);
                     }
-                    strcpy(proxyhost, opt_arg);
+                    proxyhost = apr_pstrdup(cntxt, opt_arg);
                     isproxy = 1;
                 }
                 break;
@@ -2219,19 +2469,68 @@ int main(int argc, const char * const argv[])
             case 'Z':
                 ssl_cipher = strdup(opt_arg);
                 break;
+            case 'm':
+                method = CUSTOM_METHOD;
+                method_str[CUSTOM_METHOD] = strdup(opt_arg);
+                break;
             case 'f':
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
                 if (strncasecmp(opt_arg, "ALL", 3) == 0) {
                     meth = SSLv23_client_method();
 #ifndef OPENSSL_NO_SSL2
                 } else if (strncasecmp(opt_arg, "SSL2", 4) == 0) {
                     meth = SSLv2_client_method();
+#ifdef HAVE_TLSEXT
+                    tls_use_sni = 0;
 #endif
+#endif
+#ifndef OPENSSL_NO_SSL3
                 } else if (strncasecmp(opt_arg, "SSL3", 4) == 0) {
                     meth = SSLv3_client_method();
+#ifdef HAVE_TLSEXT
+                    tls_use_sni = 0;
+#endif
+#endif
+#ifdef HAVE_TLSV1_X
+                } else if (strncasecmp(opt_arg, "TLS1.1", 6) == 0) {
+                    meth = TLSv1_1_client_method();
+                } else if (strncasecmp(opt_arg, "TLS1.2", 6) == 0) {
+                    meth = TLSv1_2_client_method();
+#endif
                 } else if (strncasecmp(opt_arg, "TLS1", 4) == 0) {
                     meth = TLSv1_client_method();
                 }
+#else /* #if OPENSSL_VERSION_NUMBER < 0x10100000L */
+                meth = TLS_client_method();
+                if (strncasecmp(opt_arg, "ALL", 3) == 0) {
+                    max_prot = TLS1_2_VERSION;
+#ifndef OPENSSL_NO_SSL3
+                    min_prot = SSL3_VERSION;
+#else
+                    min_prot = TLS1_VERSION;
+#endif
+#ifndef OPENSSL_NO_SSL3
+                } else if (strncasecmp(opt_arg, "SSL3", 4) == 0) {
+                    max_prot = SSL3_VERSION;
+                    min_prot = SSL3_VERSION;
+#endif
+                } else if (strncasecmp(opt_arg, "TLS1.1", 6) == 0) {
+                    max_prot = TLS1_1_VERSION;
+                    min_prot = TLS1_1_VERSION;
+                } else if (strncasecmp(opt_arg, "TLS1.2", 6) == 0) {
+                    max_prot = TLS1_2_VERSION;
+                    min_prot = TLS1_2_VERSION;
+                } else if (strncasecmp(opt_arg, "TLS1", 4) == 0) {
+                    max_prot = TLS1_VERSION;
+                    min_prot = TLS1_VERSION;
+                }
+#endif /* #if OPENSSL_VERSION_NUMBER < 0x10100000L */
                 break;
+#ifdef HAVE_TLSEXT
+            case 'I':
+                tls_use_sni = 0;
+                break;
+#endif
 #endif
         }
     }
@@ -2275,7 +2574,11 @@ int main(int argc, const char * const argv[])
 #ifdef RSAREF
     R_malloc_init();
 #else
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     CRYPTO_malloc_init();
+#else
+    OPENSSL_malloc_init();
+#endif
 #endif
     SSL_load_error_strings();
     SSL_library_init();
@@ -2288,6 +2591,10 @@ int main(int argc, const char * const argv[])
         exit(1);
     }
     SSL_CTX_set_options(ssl_ctx, SSL_OP_ALL);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    SSL_CTX_set_max_proto_version(ssl_ctx, max_prot);
+    SSL_CTX_set_min_proto_version(ssl_ctx, min_prot);
+#endif
 #ifdef SSL_MODE_RELEASE_BUFFERS
     /* Keep memory usage as low as possible */
     SSL_CTX_set_mode (ssl_ctx, SSL_MODE_RELEASE_BUFFERS);

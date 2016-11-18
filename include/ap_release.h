@@ -22,10 +22,8 @@
 #ifndef AP_RELEASE_H
 #define AP_RELEASE_H
 
-#include "apr_general.h" /* stringify */
-
 #define AP_SERVER_COPYRIGHT \
-  "Copyright 2012 The Apache Software Foundation."
+  "Copyright 2016 The Apache Software Foundation."
 
 /*
  * The below defines the base string of the Server: header. Additional
@@ -47,13 +45,23 @@
 #define AP_SERVER_MINORVERSION_NUMBER 5
 #define AP_SERVER_PATCHLEVEL_NUMBER   0
 #define AP_SERVER_DEVBUILD_BOOLEAN    1
-#define AP_SERVER_ADD_STRING          "-dev"
 
 /* Synchronize the above with docs/manual/style/version.ent */
 
 #if !AP_SERVER_DEVBUILD_BOOLEAN
-#undef AP_SERVER_ADD_STRING
 #define AP_SERVER_ADD_STRING          ""
+#else
+#ifndef AP_SERVER_ADD_STRING
+#define AP_SERVER_ADD_STRING          "-dev"
+#endif
+#endif
+
+/* APR_STRINGIFY is defined here, and also in apr_general.h, so wrap it */
+#ifndef APR_STRINGIFY
+/** Properly quote a value as a string in the C preprocessor */
+#define APR_STRINGIFY(n) APR_STRINGIFY_HELPER(n)
+/** Helper macro for APR_STRINGIFY */
+#define APR_STRINGIFY_HELPER(n) #n
 #endif
 
 /* keep old macros as well */

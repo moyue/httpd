@@ -23,7 +23,7 @@
 <manualpage metafile="auth.xml.meta">
 <parentdocument href="./">How-To / Tutorials</parentdocument>
 
-<title>Authentication, Authorization and Access Control</title>
+<title>Authentication and Authorization</title>
 
 <summary>
     <p>Authentication is any process by which you verify that
@@ -78,7 +78,7 @@ module from each group.</p>
 
   <p>In addition to these modules, there are also
   <module>mod_authn_core</module> and
-  <module>mod_authz_core</module>.  These module implement core
+  <module>mod_authz_core</module>.  These modules implement core
   directives that are core to all auth modules.</p>
 
   <p>The module <module>mod_authnz_ldap</module> is both an
@@ -127,9 +127,9 @@ module from each group.</p>
     an <directive module="core">AllowOverride</directive> directive like the
     following:</p>
 
-    <example>
-      AllowOverride AuthConfig
-    </example>
+    <highlight language="config">
+AllowOverride AuthConfig
+    </highlight>
 
     <p>Or, if you are just going to put the directives directly in
     your main server configuration file, you will of course need to
@@ -160,7 +160,7 @@ module from each group.</p>
     <p>This file should be
     placed somewhere not accessible from the web. This is so that
     folks cannot download the password file. For example, if your
-    documents are served out of <code>/usr/local/apache/htdocs</code> you
+    documents are served out of <code>/usr/local/apache/htdocs</code>, you
     might want to put the password file(s) in
     <code>/usr/local/apache/passwd</code>.</p>
 
@@ -199,20 +199,20 @@ module from each group.</p>
     following directives, either placed in the file
     <code>/usr/local/apache/htdocs/secret/.htaccess</code>, or
     placed in <code>httpd.conf</code> inside a &lt;Directory
-    /usr/local/apache/htdocs/secret&gt; section.</p>
+    "/usr/local/apache/htdocs/secret"&gt; section.</p>
 
-    <example>
-      AuthType Basic<br />
-      AuthName "Restricted Files"<br />
-      # (Following line optional)<br />
-      AuthBasicProvider file<br />
-      AuthUserFile /usr/local/apache/passwd/passwords<br />
-      Require user rbowen
-    </example>
+    <highlight language="config">
+AuthType Basic
+AuthName "Restricted Files"
+# (Following line optional)
+AuthBasicProvider file
+AuthUserFile "/usr/local/apache/passwd/passwords"
+Require user rbowen
+    </highlight>
 
     <p>Let's examine each of those directives individually. The <directive
     module="mod_authn_core">AuthType</directive> directive selects
-    that method that is used to authenticate the user. The most
+    the method that is used to authenticate the user. The most
     common method is <code>Basic</code>, and this is the method
     implemented by <module>mod_auth_basic</module>. It is important to be aware,
     however, that Basic authentication sends the password from the client to
@@ -220,8 +220,9 @@ module from each group.</p>
     highly sensitive data, unless accompanied by <module>mod_ssl</module>.
     Apache supports one other authentication method:
     <code>AuthType Digest</code>. This method is implemented by <module
-    >mod_auth_digest</module> and is much more secure. Most recent
-    browsers support Digest authentication.</p>
+    >mod_auth_digest</module> and was intended to be more secure. This is no
+    longer the case and the connection should be encrypted with <module
+    >mod_ssl</module> instead.</p>
 
     <p>The <directive module="mod_authn_core">AuthName</directive> directive sets
     the <dfn>Realm</dfn> to be used in the authentication. The realm serves
@@ -256,7 +257,7 @@ module from each group.</p>
     The <module>mod_authn_dbm</module> module provides the <directive
     module="mod_authn_dbm">AuthDBMUserFile</directive> directive. These
     files can be created and manipulated with the <program>
-    dbmmanage</program> program. Many
+    dbmmanage</program> and <program>htdbm</program> programs. Many
     other types of authentication options are available from third
     party modules in the <a
     href="http://modules.apache.org/">Apache Modules
@@ -305,15 +306,15 @@ person in</title>
     <p>Now, you need to modify your <code>.htaccess</code> file to
     look like the following:</p>
 
-    <example>
-      AuthType Basic<br />
-      AuthName "By Invitation Only"<br />
-      # Optional line:<br />
-      AuthBasicProvider file<br />
-      AuthUserFile /usr/local/apache/passwd/passwords<br />
-      AuthGroupFile /usr/local/apache/passwd/groups<br />
-      Require group GroupName
-    </example>
+    <highlight language="config">
+AuthType Basic
+AuthName "By Invitation Only"
+# Optional line:
+AuthBasicProvider file
+AuthUserFile "/usr/local/apache/passwd/passwords"
+AuthGroupFile "/usr/local/apache/passwd/groups"
+Require group GroupName
+    </highlight>
 
     <p>Now, anyone that is listed in the group <code>GroupName</code>,
     and has an entry in the <code>password</code> file, will be let in, if
@@ -323,9 +324,9 @@ person in</title>
     specific. Rather than creating a group file, you can just use
     the following directive:</p>
 
-    <example>
-      Require valid-user
-    </example>
+    <highlight language="config">
+Require valid-user
+    </highlight>
 
     <p>Using that rather than the <code>Require user rbowen</code>
     line will allow anyone in that is listed in the password file,
@@ -370,19 +371,17 @@ person in</title>
     you can choose <code>dbm</code> or <code>dbd</code> as your storage
     format.</p>
 
-    <p>To select a dbd file rather than a text file, for example:</p>
+    <p>To select a dbm file rather than a text file, for example:</p>
 
-    <example>
-    &lt;Directory /www/docs/private&gt;<br />
-    <indent>
-    AuthName "Private"<br />
-    AuthType Basic<br />
-    AuthBasicProvider dbm<br />
-    AuthDBMUserFile /www/passwords/passwd.dbm<br />
-    Require valid-user<br />
-    </indent>
-    &lt;/Directory&gt;
-    </example>
+    <highlight language="config">
+&lt;Directory "/www/docs/private"&gt;
+    AuthName "Private"
+    AuthType Basic
+    AuthBasicProvider dbm
+    AuthDBMUserFile "/www/passwords/passwd.dbm"
+    Require valid-user
+&lt;/Directory&gt;
+    </highlight>
 
     <p>Other options are available. Consult the
     <module>mod_authn_dbm</module> documentation for more details.</p>
@@ -397,18 +396,16 @@ person in</title>
     scheme that meets your needs. In the following example, both the
     file and LDAP based authentication providers are being used.</p>
 
-    <example>
-    &lt;Directory /www/docs/private&gt;<br />
-    <indent>
-    AuthName "Private"<br />
-    AuthType Basic<br />
-    AuthBasicProvider file ldap<br />
-    AuthUserFile /usr/local/apache/passwd/passwords<br />
-    AuthLDAPURL ldap://ldaphost/o=yourorg<br />
-    Require valid-user<br />
-    </indent>
-    &lt;/Directory&gt;
-    </example>
+    <highlight language="config">
+&lt;Directory "/www/docs/private"&gt;
+    AuthName "Private"
+    AuthType Basic
+    AuthBasicProvider file ldap
+    AuthUserFile "/usr/local/apache/passwd/passwords"
+    AuthLDAPURL ldap://ldaphost/o=yourorg
+    Require valid-user
+&lt;/Directory&gt;
+    </highlight>
 
     <p>In this example the file provider will attempt to authenticate
     the user first. If it is unable to authenticate the user, the LDAP
@@ -423,20 +420,18 @@ person in</title>
     authorization methods can also be used. In this example both file group
     authorization as well as LDAP group authorization is being used.</p>
 
-    <example>
-    &lt;Directory /www/docs/private&gt;<br />
-    <indent>
-    AuthName "Private"<br />
-    AuthType Basic<br />
-    AuthBasicProvider file<br />
-    AuthUserFile /usr/local/apache/passwd/passwords<br />
+    <highlight language="config">
+&lt;Directory "/www/docs/private"&gt;
+    AuthName "Private"
+    AuthType Basic
+    AuthBasicProvider file
+    AuthUserFile "/usr/local/apache/passwd/passwords"
     AuthLDAPURL ldap://ldaphost/o=yourorg
-    AuthGroupFile /usr/local/apache/passwd/groups<br />
-    Require group GroupName<br />
-    Require ldap-group cn=mygroup,o=yourorg<br />
-    </indent>
-    &lt;/Directory&gt;
-    </example>
+    AuthGroupFile "/usr/local/apache/passwd/groups"
+    Require group GroupName
+    Require ldap-group cn=mygroup,o=yourorg
+&lt;/Directory&gt;
+    </highlight>
 
     <p>To take authorization a little further, authorization container
     directives such as
@@ -444,20 +439,20 @@ person in</title>
     and
     <directive module="mod_authz_core" type="section">RequireAny</directive>
     allow logic to be applied so that the order in which authorization
-    is handled can be completely controled through the configuration.
+    is handled can be completely controlled through the configuration.
     See <a href="../mod/mod_authz_core.html#logic">Authorization
-    Containers</a> for an example of they may be applied.</p>
+    Containers</a> for an example of how they may be applied.</p>
 
 </section>
 
 <section id="beyond"><title>Beyond just authorization</title>
 
-    <p>The way that authorization can be apply is now much more flexible
+    <p>The way that authorization can be applied is now much more flexible
     than just a single check against a single data store. Ordering, logic
     and choosing how authorization will be done is now possible.</p>
 
     <section id="authandororder"><title>Applying logic and ordering</title>
-        <p>Controling how and in what order authorization will be applied
+        <p>Controlling how and in what order authorization will be applied
         has been a bit of a mystery in the past. In Apache 2.2 a provider-based
         authentication mechanism was introduced to decouple the actual
         authentication process from authorization and supporting functionality.
@@ -500,13 +495,11 @@ person in</title>
         other than who they are. Something such as where they are
         coming from.</p>
 
-        <p>The authorization providers <directive module="mod_authz_host">
-        all</directive>, <directive module="mod_authz_host">
-        env</directive>, <directive module="mod_authz_host">
-        host</directive> and <directive module="mod_authz_host">
-        ip</directive> let you allow or deny access based other host based
-        criteria such as host name or ip address of the machine requesting
-        a document.</p>
+        <p>The authorization providers <code>all</code>,
+        <code>env</code>, <code>host</code> and <code>ip</code> let you
+        allow or deny access based on other host based criteria such as
+        host name or ip address of the machine requesting a
+        document.</p>
 
         <p>The usage of these providers is specified through the
         <directive module="mod_authz_core">Require</directive> directive.
@@ -514,16 +507,16 @@ person in</title>
         that will be called during the authorization stage of the request
         processing. For example:</p>
 
-        <example>
-          Require ip <var>address</var>
-        </example>
+        <highlight language="config">
+Require ip <var>address</var>
+        </highlight>
 
         <p>where <var>address</var> is an IP address (or a partial IP
         address) or:</p>
 
-        <example>
-          Require host <var>domain_name</var>
-        </example>
+        <highlight language="config">
+Require host <var>domain_name</var>
+        </highlight>
 
         <p>where <var>domain_name</var> is a fully qualified domain name
         (or a partial domain name); you may provide multiple addresses or
@@ -533,73 +526,77 @@ person in</title>
         board, and you want to keep them out, you could do the
         following:</p>
 
-        <example>
-          &lt;RequireAll&gt;
-          <indent>
-            Require all granted<br/>
-            Require not ip 10.252.46.165
-          </indent>
-          &lt;/RequireAll&gt;
-        </example>
+        <highlight language="config">
+&lt;RequireAll&gt;
+    Require all granted
+    Require not ip 10.252.46.165
+&lt;/RequireAll&gt;
+        </highlight>
 
         <p>Visitors coming from that address will not be able to see
         the content covered by this directive. If, instead, you have a
         machine name, rather than an IP address, you can use that.</p>
 
-        <example>
-          &lt;RequireAll&gt;
-          <indent>
-            Require all granted<br/>
-            Require not host <var>host.example.com</var>
-          </indent>
-          &lt;/RequireAll&gt;
-        </example>
+        <highlight language="config">
+&lt;RequireAll&gt;
+    Require all granted
+    Require not host host.example.com
+&lt;/RequireAll&gt;
+        </highlight>
 
         <p>And, if you'd like to block access from an entire domain,
         you can specify just part of an address or domain name:</p>
 
-        <example>
-          &lt;RequireAll&gt;
-          <indent>
-            Require all granted<br/>
-            &lt;RequireNone&gt;
-            <indent>
-              Require ip 192.168.205<br />
-              Require host phishers.example.com moreidiots.example<br />
-              Require host ke
-            </indent>
-            &lt;/RequireNone&gt;
-          </indent>
-          &lt;/RequireAll&gt;
-        </example>
+        <highlight language="config">
+&lt;RequireAll&gt;
+    Require all granted
+    Require not ip 192.168.205
+    Require not host phishers.example.com moreidiots.example
+    Require not host ke
+&lt;/RequireAll&gt;
+        </highlight>
 
-        <p>The above example uses the <directive module="mod_authz_core"
-        type="section">RequireNone</directive> directive
-        to make sure that none of the
-        <directive module="mod_authz_core">Require</directive> directives
-        contained within it
-        match their parameters before granting access.</p>
+        <p>Using <directive module="mod_authz_core" type="section">RequireAll</directive>
+        with multiple <directive module="mod_authz_core"
+        type="section">Require</directive> directives, each negated with <code>not</code>,
+        will only allow access, if all of negated conditions are true. In other words,
+        access will be blocked, if any of the negated conditions fails.</p>
 
     </section>
 
     <section id="filesystem"><title>Access Control backwards compatibility</title>
         <p>One of the side effects of adopting a provider based mechanism for
-        authentication is that the need for the previous access control directives
+        authentication is that the previous access control directives
         <directive module="mod_access_compat">Order</directive>,
         <directive module="mod_access_compat">Allow</directive>,
         <directive module="mod_access_compat">Deny</directive> and
         <directive module="mod_access_compat">Satisfy</directive> are no longer needed.
         However to provide backwards compatibility for older configurations, these
         directives have been moved to the <module>mod_access_compat</module> module.</p>
+
+        <note type="warning"><title>Note</title>
+        <p>The directives provided by <module>mod_access_compat</module> have
+        been deprecated by <module>mod_authz_host</module>.
+        Mixing old directives like <directive
+        module="mod_access_compat">Order</directive>, <directive
+        module="mod_access_compat">Allow</directive> or <directive
+        module="mod_access_compat">Deny</directive> with new ones like
+        <directive module="mod_authz_core">Require</directive> is technically possible
+        but discouraged. The <module>mod_access_compat</module> module was created to support
+        configurations containing only old directives to facilitate the 2.4 upgrade.
+        Please check the <a href="../upgrading.html">upgrading</a> guide for more
+        information.
+        </p>
+        </note>
     </section>
 
 </section>
 
-<section id="socache"><title>Authentication Cacheing</title>
+<section id="socache"><title>Authentication Caching</title>
     <p>There may be times when authentication puts an unacceptable load
     on a provider or on your network.  This is most likely to affect users
     of <module>mod_authn_dbd</module> (or third-party/custom providers).
-    To deal with this, HTTPD 2.3/2.4 introduces a new cacheing provider
+    To deal with this, HTTPD 2.3/2.4 introduces a new caching provider
     <module>mod_authn_socache</module> to cache credentials and reduce
     the load on the origin provider(s).</p>
     <p>This may offer a substantial performance boost to some users.</p>
@@ -607,10 +604,11 @@ person in</title>
 
 <section id="moreinformation"><title>More information</title>
     <p>You should also read the documentation for
-    <module>mod_auth_basic</module> and <module>mod_authz_host</module> which
-    contain some more information about how this all works.
-    The directive <directive module="mod_authn_core">&lt;AuthnProviderAlias&gt;</directive>
-    can also help in simplifying certain authentication configurations.</p>
+    <module>mod_auth_basic</module> and <module>mod_authz_host</module>
+    which contain some more information about how this all works.  The
+    directive <directive type="section"
+    module="mod_authn_core">AuthnProviderAlias</directive> can also help
+    in simplifying certain authentication configurations.</p>
 
     <p>The various ciphers supported by Apache for authentication data are
     explained in <a href="../misc/password_encryptions.html">Password
@@ -622,4 +620,3 @@ person in</title>
 </section>
 
 </manualpage>
-

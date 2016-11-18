@@ -38,6 +38,17 @@ AC_CACHE_CHECK([whether APR supports thread-safe pollsets], [ac_cv_have_threadsa
     fi
 ])
 
+dnl See if APR has skiplist
+dnl The base httpd prereq is APR 1.4.x, so we don't have to consider
+dnl earlier versions.
+case $APR_VERSION in
+    1.4*)
+        apr_has_skiplist=no
+        ;;
+    *)
+        apr_has_skiplist=yes
+esac
+
 dnl See if this is a forking platform w.r.t. MPMs
 case $host in
     *mingw32* | *os2-emx*)
@@ -49,7 +60,7 @@ case $host in
 esac
 
 dnl APACHE_MPM_SUPPORTED(name, supports-shared, is_threaded)
-AC_DEFUN(APACHE_MPM_SUPPORTED,[
+AC_DEFUN([APACHE_MPM_SUPPORTED],[
     if test "$2" = "yes"; then
         eval "ap_supported_mpm_$1=shared"
         ap_supported_shared_mpms="$ap_supported_shared_mpms $1 "
@@ -62,7 +73,7 @@ AC_DEFUN(APACHE_MPM_SUPPORTED,[
 ])dnl
 
 dnl APACHE_MPM_ENABLED(name)
-AC_DEFUN(APACHE_MPM_ENABLED,[
+AC_DEFUN([APACHE_MPM_ENABLED],[
     if ap_mpm_is_enabled $1; then
         :
     else

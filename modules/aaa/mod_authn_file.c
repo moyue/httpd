@@ -15,7 +15,6 @@
  */
 
 #include "apr_strings.h"
-#include "apr_md5.h"            /* for apr_password_validate */
 
 #include "ap_config.h"
 #include "ap_provider.h"
@@ -45,21 +44,11 @@ static void *create_authn_file_dir_config(apr_pool_t *p, char *d)
     return conf;
 }
 
-static const char *set_authn_file_slot(cmd_parms *cmd, void *offset,
-                                       const char *f, const char *t)
-{
-    if (t && strcmp(t, "standard")) {
-        return apr_pstrcat(cmd->pool, "Invalid auth file type: ", t, NULL);
-    }
-
-    return ap_set_file_slot(cmd, offset, f);
-}
-
 static const command_rec authn_file_cmds[] =
 {
-    AP_INIT_TAKE12("AuthUserFile", set_authn_file_slot,
-                   (void *)APR_OFFSETOF(authn_file_config_rec, pwfile),
-                   OR_AUTHCFG, "text file containing user IDs and passwords"),
+    AP_INIT_TAKE1("AuthUserFile", ap_set_file_slot,
+                  (void *)APR_OFFSETOF(authn_file_config_rec, pwfile),
+                  OR_AUTHCFG, "text file containing user IDs and passwords"),
     {NULL}
 };
 
@@ -112,7 +101,7 @@ static authn_status check_password(request_rec *r, const char *user,
     }
     AUTHN_CACHE_STORE(r, user, NULL, file_password);
 
-    status = apr_password_validate(password, file_password);
+    status = ap_password_validate(r, user, password, file_password);
     if (status != APR_SUCCESS) {
         return AUTH_DENIED;
     }

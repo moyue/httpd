@@ -66,7 +66,7 @@ typedef struct ef_ctx_t {
     apr_procattr_t *procattr;
     ef_dir_t *dc;
     ef_filter_t *filter;
-    int noop;
+    int noop, hit_eos;
 #if APR_FILES_AS_SOCKETS
     apr_pollset_t *pollset;
 #endif
@@ -396,7 +396,6 @@ static void child_errfn(apr_pool_t *pool, apr_status_t err, const char *descript
     request_rec *r;
     void *vr;
     apr_file_t *stderr_log;
-    char errbuf[200];
     char time_str[APR_CTIME_LEN];
 
     apr_pool_userdata_get(&vr, ERRFN_USERDATA_KEY, pool);
@@ -404,11 +403,11 @@ static void child_errfn(apr_pool_t *pool, apr_status_t err, const char *descript
     apr_file_open_stderr(&stderr_log, pool);
     ap_recent_ctime(time_str, apr_time_now());
     apr_file_printf(stderr_log,
-                    "[%s] [client %s] mod_ext_filter (%d)%s: %s\n",
+                    "[%s] [client %s] mod_ext_filter (%d)%pm: %s\n",
                     time_str,
                     r->useragent_ip,
                     err,
-                    apr_strerror(err, errbuf, sizeof(errbuf)),
+                    &err,
                     description);
 }
 
@@ -636,7 +635,7 @@ static apr_status_t init_filter_instance(ap_filter_t *f)
 /* drain_available_output():
  *
  * if any data is available from the filter, read it and append it
- * to the the bucket brigade
+ * to the bucket brigade
  */
 static apr_status_t drain_available_output(ap_filter_t *f,
                                            apr_bucket_brigade *bb)
@@ -681,9 +680,9 @@ static apr_status_t pass_data_to_filter(ap_filter_t *f, const char *data,
 
     do {
         tmplen = len - bytes_written;
-        rv = apr_file_write(ctx->proc->in,
+        rv = apr_file_write_full(ctx->proc->in,
                        (const char *)data + bytes_written,
-                       &tmplen);
+                       tmplen, &tmplen);
         bytes_written += tmplen;
         if (rv != APR_SUCCESS && !APR_STATUS_IS_EAGAIN(rv)) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, f->r, APLOGNO(01461)
@@ -716,7 +715,7 @@ static apr_status_t pass_data_to_filter(ap_filter_t *f, const char *data,
                 /* Yuck... I'd really like to wait until I can read
                  * or write, but instead I have to sleep and try again
                  */
-                apr_sleep(100000); /* 100 milliseconds */
+                apr_sleep(apr_time_from_msec(100));
                 ap_log_rerror(APLOG_MARK, APLOG_TRACE6, 0, f->r, "apr_sleep()");
 #endif /* APR_FILES_AS_SOCKETS */
             }
@@ -827,6 +826,7 @@ static int ef_unified_filter(ap_filter_t *f, apr_bucket_brigade *bb)
     if (eos) {
         b = apr_bucket_eos_create(c->bucket_alloc);
         APR_BRIGADE_INSERT_TAIL(bb, b);
+        ctx->hit_eos = 1;
     }
 
     return APR_SUCCESS;
@@ -891,6 +891,11 @@ static apr_status_t ef_input_filter(ap_filter_t *f, apr_bucket_brigade *bb,
     ef_ctx_t *ctx = f->ctx;
     apr_status_t rv;
 
+    /* just get out of the way of things we don't want. */
+    if (mode != AP_MODE_READBYTES) {
+        return ap_get_brigade(f->next, bb, mode, block, readbytes);
+    }
+
     if (!ctx) {
         if ((rv = init_filter_instance(f)) != APR_SUCCESS) {
             ctx = f->ctx;
@@ -908,6 +913,14 @@ static apr_status_t ef_input_filter(ap_filter_t *f, apr_bucket_brigade *bb,
             }
         }
         ctx = f->ctx;
+    }
+
+    if (ctx->hit_eos) {
+        /* Match behaviour of HTTP_IN if filter is re-invoked after
+         * hitting EOS: give back another EOS. */
+        apr_bucket *e = apr_bucket_eos_create(f->c->bucket_alloc);
+        APR_BRIGADE_INSERT_TAIL(bb, e);
+        return APR_SUCCESS;
     }
 
     if (ctx->noop) {

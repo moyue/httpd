@@ -67,6 +67,10 @@
         <message id="uppercase">ABCDEFGHIJKLMNOPQRSTUVWXYZ</message>
         <message id="name-section">NAME</message>
         <message id="hyphenation"></message>
+        <message id="foundabug">Bugfix checklist</message>
+        <message id="httpdchangelog">httpd changelog</message>
+        <message id="httpdknownissues">Known issues</message>
+        <message id="httpdreportabug">Report a bug</message>
 
         <!-- Used in description box for directives -->
         <message id="syntax">Syntax</message>
@@ -96,6 +100,9 @@
              if present, the space between <directive name> and 'Directive'
              in directivesynopsis headings will be replaced by the given string.
              (see de.xml for an example) -->
+        <!-- the optional attribute before-name takes a string.
+             if "yes", the 'Directive' word is place before the name instead of
+             being placed behind. See fr.xml for an example. -->
         <message id="directive" replace-space-with="-">Direktive</message>
         <message id="nodirectives">Dieses Modul enth&#228;lt keine
             Direktiven.</message>
@@ -117,6 +124,7 @@
         <message id="search">Google-Suche</message> <!-- search button -->
         <message id="index">Index</message> <!-- deprecated -->
         <message id="home">Startseite</message> <!-- deprecated -->
+        <message id="comments">Kommentare</message>
 
         <!-- breadcrumb links -->
         <message id="apache">Apache</message>
@@ -143,5 +151,14 @@
         <message id="nottranslated">Die Dokumentation zu dieser Direktive wurde
             noch nicht &#252;bersetzt. Bitte schauen Sie in die englische
             Version.</message>
+
+        <!-- retirement -->
+        <message id="retired.headline">Bitte beachten!</message>
+        <message id="retired.description">
+            <p>Dieses Dokument bezieht sich auf Version <strong>2.0</strong> des Apache httpd, die <strong>nicht mehr gepflegt wird</strong>. Bitte aktualisieren Sie die Software und verwenden Sie stattdessen eine aktuelle Version des httpd, die an folgender Stelle dokumentiert ist:</p>
+        </message>
+        <message id="retired.current">Dokumentation des Apache HTTP Server f&#252;r die zuletzt erschienene Version</message>
+        <message id="retired.document">Sie können <link>diesem Link</link> folgen, um zur aktuellen Version dieses Dokuments zu gelangen.</message>
+
     </messages>
 </language>

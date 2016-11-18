@@ -65,17 +65,25 @@ extern "C" {
 
 /* Options for ap_regcomp, ap_regexec, and ap_rxplus versions: */
 
-#define AP_REG_ICASE    0x01 /** use a case-insensitive match */
-#define AP_REG_NEWLINE  0x02 /** don't match newlines against '.' etc */
-#define AP_REG_NOTBOL   0x04 /** ^ will not match against start-of-string */
-#define AP_REG_NOTEOL   0x08 /** $ will not match against end-of-string */
+#define AP_REG_ICASE    0x01 /**< use a case-insensitive match */
+#define AP_REG_NEWLINE  0x02 /**< don't match newlines against '.' etc */
+#define AP_REG_NOTBOL   0x04 /**< ^ will not match against start-of-string */
+#define AP_REG_NOTEOL   0x08 /**< $ will not match against end-of-string */
 
-#define AP_REG_EXTENDED (0)  /** unused */
-#define AP_REG_NOSUB    (0)  /** unused */
+#define AP_REG_EXTENDED (0)  /**< unused */
+#define AP_REG_NOSUB    (0)  /**< unused */
 
-#define AP_REG_MULTI 0x10    /* perl's /g (needs fixing) */
-#define AP_REG_NOMEM 0x20    /* nomem in our code */
-#define AP_REG_DOTALL 0x40   /* perl's /s flag */
+#define AP_REG_MULTI    0x10 /**< perl's /g (needs fixing) */
+#define AP_REG_NOMEM    0x20 /**< nomem in our code */
+#define AP_REG_DOTALL   0x40 /**< perl's /s flag */
+
+#define AP_REG_MATCH "MATCH_" /**< suggested prefix for ap_regname */
+
+/* Arguments for ap_pcre_version_string */
+enum {
+  AP_REG_PCRE_COMPILED = 0, /** PCRE version used during program compilation */
+  AP_REG_PCRE_LOADED        /** PCRE version loaded at runtime */
+};
 
 /* Error values: */
 enum {
@@ -99,6 +107,15 @@ typedef struct {
 } ap_regmatch_t;
 
 /* The functions */
+
+/**
+ * Return PCRE version string.
+ * @param which Either AP_REG_PCRE_COMPILED (PCRE version used
+ *              during program compilation) or AP_REG_PCRE_LOADED
+ *              (PCRE version used at runtime)
+ * @return The PCRE version string
+ */
+AP_DECLARE(const char *) ap_pcre_version_string(int which);
 
 /**
  * Compile a regular expression.
@@ -148,6 +165,18 @@ AP_DECLARE(int) ap_regexec_len(const ap_regex_t *preg, const char *buff,
  */
 AP_DECLARE(apr_size_t) ap_regerror(int errcode, const ap_regex_t *preg,
                                    char *errbuf, apr_size_t errbuf_size);
+
+/**
+ * Return an array of named regex backreferences
+ * @param preg The precompiled regex
+ * @param names The array to which the names will be added
+ * @param prefix An optional prefix to add to the returned names.  AP_REG_MATCH
+ * is the recommended prefix.
+ * @param upper If non zero, uppercase the names
+ */
+AP_DECLARE(int) ap_regname(const ap_regex_t *preg,
+                           apr_array_header_t *names, const char *prefix,
+                           int upper);
 
 /** Destroy a pre-compiled regex.
  * @param preg The pre-compiled regex to free.
@@ -232,5 +261,4 @@ AP_DECLARE(char*) ap_rxplus_pmatch(apr_pool_t *pool, ap_rxplus_t *rx, int n);
 }   /* extern "C" */
 #endif
 
-#endif /* AP_REGEX_T */
-
+#endif /* AP_REGEX_H */

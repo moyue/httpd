@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE modulesynopsis SYSTEM "../style/modulesynopsis.dtd">
 <?xml-stylesheet type="text/xsl" href="../style/manual.en.xsl"?>
-<!-- $LastChangedRevision: 1174747 $ -->
+<!-- $LastChangedRevision$ -->
 
 <!--
  Licensed to the Apache Software Foundation (ASF) under one or more
@@ -42,26 +42,22 @@ HTTP caching filter.</description>
     however the caching of partial content is not yet supported by this
     module.</p>
 
-    <example>
-      # Turn on caching<br />
-      CacheSocache shmcb<br />
-      CacheSocacheMaxSize 102400<br />
-      &lt;Location /foo&gt;<br />
-        <indent>
-        CacheEnable socache<br />
-        </indent>
-      &lt;/Location&gt;<br />
-      <br />
-      # Fall back to the disk cache<br />
-      CacheSocache shmcb<br />
-      CacheSocacheMaxSize 102400<br />
-      &lt;Location /foo&gt;<br />
-        <indent>
-        CacheEnable socache<br />
-        CacheEnable disk<br />
-        </indent>
-      &lt;/Location&gt;<br />
-    </example>
+    <highlight language="config">
+# Turn on caching
+CacheSocache shmcb
+CacheSocacheMaxSize 102400
+&lt;Location "/foo"&gt;
+    CacheEnable socache
+&lt;/Location&gt;
+
+# Fall back to the disk cache
+CacheSocache shmcb
+CacheSocacheMaxSize 102400
+&lt;Location "/foo"&gt;
+    CacheEnable socache
+    CacheEnable disk
+&lt;/Location&gt;
+    </highlight>
 
     <note><title>Note:</title>
       <p><module>mod_cache_socache</module> requires the services of
@@ -75,12 +71,11 @@ HTTP caching filter.</description>
 
 <directivesynopsis>
 <name>CacheSocache</name>
-<description>The directory root under which cache files are
-stored</description>
+<description>The shared object cache implementation to use</description>
 <syntax>CacheSocache <var>type[:args]</var></syntax>
 <contextlist><context>server config</context><context>virtual host</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocache</directive> directive defines the name of
@@ -89,9 +84,9 @@ stored</description>
     implementations</a> of shared object caches are available to choose
     from.</p>
 
-    <example>
+    <highlight language="config">
       CacheSocache shmcb
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -106,7 +101,7 @@ cache</description>
   <context>directory</context>
   <context>.htaccess</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocacheMaxTime</directive> directive sets the
@@ -114,15 +109,15 @@ cache</description>
     the cache. This value overrides the freshness lifetime defined for the
     document by the HTTP protocol.</p>
 
-    <example>
+    <highlight language="config">
       CacheSocacheMaxTime 86400
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 
 <directivesynopsis>
 <name>CacheSocacheMinTime</name>
-<description>The maximum time (in seconds) for a document to be placed in the
+<description>The minimum time (in seconds) for a document to be placed in the
 cache</description>
 <syntax>CacheSocacheMinTime <var>seconds</var></syntax>
 <default>CacheSocacheMinTime 600</default>
@@ -131,7 +126,7 @@ cache</description>
   <context>directory</context>
   <context>.htaccess</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocacheMinTime</directive> directive sets the
@@ -140,9 +135,9 @@ cache</description>
     only stored for its freshness lifetime, there will be no opportunity to
     revalidate the response to make it fresh again.</p>
 
-    <example>
+    <highlight language="config">
       CacheSocacheMinTime 600
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -157,7 +152,7 @@ cache</description>
   <context>directory</context>
   <context>.htaccess</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocacheMaxSize</directive> directive sets the
@@ -172,9 +167,9 @@ cache</description>
     responses larger than those cacheable within
     <module>mod_cache_socache</module>.</p>
 
-    <example>
+    <highlight language="config">
       CacheSocacheMaxSize 102400
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -189,7 +184,7 @@ cache</description>
     <context>directory</context>
     <context>.htaccess</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocacheReadSize</directive> directive sets the
@@ -203,9 +198,9 @@ cache</description>
     <p>This directive only takes effect when the data is being saved to the
     cache, as opposed to data being served from the cache.</p>
 
-    <example>
+    <highlight language="config">
       CacheReadSize 102400
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 
@@ -220,7 +215,7 @@ cache</description>
   <context>directory</context>
   <context>.htaccess</context>
 </contextlist>
-<compatibility>Available in Apache 2.5 and later</compatibility>
+<compatibility>Available in Apache 2.4.5 and later</compatibility>
 
 <usage>
     <p>The <directive>CacheSocacheReadTime</directive> directive sets the minimum amount
@@ -238,9 +233,9 @@ cache</description>
     to ensure that the server does not buffer excessively should data arrive faster
     than expected.</p>
 
-    <example>
+    <highlight language="config">
       CacheSocacheReadTime 1000
-    </example>
+    </highlight>
 </usage>
 </directivesynopsis>
 

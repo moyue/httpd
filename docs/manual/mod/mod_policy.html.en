@@ -1,20 +1,25 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><!--
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="Content-Type" />
+<!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>mod_policy - Apache HTTP Server</title>
+<title>mod_policy - Apache HTTP Server Version 2.5</title>
 <link href="../style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="../style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
-<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" />
+<link href="../style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="../style/css/prettify.css" />
+<script src="../style/scripts/prettify.min.js" type="text/javascript">
+</script>
+
 <link href="../images/favicon.ico" rel="shortcut icon" /></head>
 <body>
 <div id="page-header">
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
-<img alt="" src="../images/feather.gif" /></div>
+<img alt="" src="../images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="../images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="../">Version 2.5</a> &gt; <a href="./">Modules</a></div>
@@ -49,7 +54,12 @@
     detect configuration mistakes within the server itself.</p>
 
 </div>
-<div id="quickview"><h3 class="directives">Directives</h3>
+<div id="quickview"><h3>Topics</h3>
+<ul id="topics">
+<li><img alt="" src="../images/down.gif" /> <a href="#actions">Actions</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#tests">Policy Tests</a></li>
+<li><img alt="" src="../images/down.gif" /> <a href="#example">Example Configuration</a></li>
+</ul><h3 class="directives">Directives</h3>
 <ul id="toc">
 <li><img alt="" src="../images/down.gif" /> <a href="#policyconditional">PolicyConditional</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#policyconditionalurl">PolicyConditionalURL</a></li>
@@ -72,16 +82,11 @@
 <li><img alt="" src="../images/down.gif" /> <a href="#policyversion">PolicyVersion</a></li>
 <li><img alt="" src="../images/down.gif" /> <a href="#policyversionurl">PolicyVersionURL</a></li>
 </ul>
-<h3>Topics</h3>
-<ul id="topics">
-<li><img alt="" src="../images/down.gif" /> <a href="#actions">Actions</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#tests">Policy Tests</a></li>
-<li><img alt="" src="../images/down.gif" /> <a href="#example">Example Configuration</a></li>
-</ul><h3>See also</h3>
+<h3>Bugfix checklist</h3><ul class="seealso"><li><a href="https://www.apache.org/dist/httpd/CHANGES_2.4">httpd changelog</a></li><li><a href="https://bz.apache.org/bugzilla/buglist.cgi?bug_status=__open__&amp;list_id=144532&amp;product=Apache%20httpd-2&amp;query_format=specific&amp;order=changeddate%20DESC%2Cpriority%2Cbug_severity&amp;component=mod_policy">Known issues</a></li><li><a href="https://bz.apache.org/bugzilla/enter_bug.cgi?product=Apache%20httpd-2&amp;component=mod_policy">Report a bug</a></li></ul><h3>See also</h3>
 <ul class="seealso">
 <li><a href="../filter.html">Filters</a></li>
 <li><a href="../compliance.html">HTTP Protocol Compliance</a></li>
-</ul></div>
+<li><a href="#comments_section">Comments</a></li></ul></div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="actions" id="actions">Actions</a></h2>
@@ -134,7 +139,7 @@
     <dd>Content types that are syntactically invalid or blank can be detected
 	and the request rejected. Types can be restricted to a specific list
 	containing optional wildcards ? and *.</dd>
-    
+
     <dt><strong><a href="../compliance.html#policylength">POLICY_LENGTH</a>
     </strong>: Enforce the presence of a Content-Length</dt>
     <dd>The length of responses can be specified in one of three ways, by
@@ -225,50 +230,43 @@
     <p>A typical configuration protecting a server serving static content
     might be as follows:</p>
 
-    <div class="example"><p><code>
-    &lt;Location /&gt;<br />
-    <span class="indent">
-      SetOutputFilter POLICY_TYPE;POLICY_LENGTH;POLICY_KEEPALIVE;POLICY_VARY;POLICY_VALIDATION; \<br />
-      <span class="indent">
-        POLICY_CONDITIONAL;POLICY_NOCACHE;POLICY_MAXAGE;POLICY_VERSION<br />
-      </span>
-      <br />
-      # content type must be present and valid, but can be anything<br />
-      PolicyType enforce */*<br />
-      <br />
-      # reject if no explicitly declared content length<br />
-      PolicyLength enforce<br />
-      <br />
-      # covered by the policy length filter<br />
-      PolicyKeepalive ignore<br />
-      <br />
-      # reject if User-Agent appears within Vary headers<br />
-      PolicyVary enforce User-Agent<br />
-      <br />
-      # we want to enforce validation<br />
-      PolicyValidation enforce<br />
-      <br />
-      # non-functional conditional responses should be rejected<br />
-      PolicyConditional enforce<br />
-      <br />
-      # no-cache responses should be rejected<br />
-      PolicyNocache enforce<br />
-      <br />
-      # maxage must be at least a day<br />
-      PolicyMaxage enforce 86400<br />
-      <br />
-      # request version can be anything<br />
-      PolicyVersion ignore HTTP/1.1<br />
-    </span>
-    &lt;/Location&gt;<br />
-    <br />
-    # suppress policy protection for server-status<br />
-    &lt;Location /server-status&gt;<br />
-    <span class="indent">
-      PolicyFilter off<br />
-    </span>
-    &lt;/Location&gt;<br />
-    </code></p></div>
+    <pre class="prettyprint lang-config">&lt;Location "/"&gt;
+  SetOutputFilter POLICY_TYPE;POLICY_LENGTH;POLICY_KEEPALIVE;POLICY_VARY;POLICY_VALIDATION; \
+    POLICY_CONDITIONAL;POLICY_NOCACHE;POLICY_MAXAGE;POLICY_VERSION
+
+  # content type must be present and valid, but can be anything
+  PolicyType enforce */*
+
+  # reject if no explicitly declared content length
+  PolicyLength enforce
+
+  # covered by the policy length filter
+  PolicyKeepalive ignore
+
+  # reject if User-Agent appears within Vary headers
+  PolicyVary enforce User-Agent
+
+  # we want to enforce validation
+  PolicyValidation enforce
+
+  # non-functional conditional responses should be rejected
+  PolicyConditional enforce
+
+  # no-cache responses should be rejected
+  PolicyNocache enforce
+
+  # maxage must be at least a day
+  PolicyMaxage enforce 86400
+
+  # request version can be anything
+  PolicyVersion ignore HTTP/1.1
+&lt;/Location&gt;
+
+# suppress policy protection for server-status
+&lt;Location "/server-status"&gt;
+  PolicyFilter off
+&lt;/Location&gt;</pre>
+
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -286,10 +284,9 @@ later.</td></tr>
     <p>When logged or enforced, a response that should have been conditional
     but wasn't will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # non-functional conditional responses should be rejected<br />
-    PolicyConditional enforce<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># non-functional conditional responses should be rejected
+PolicyConditional enforce</pre>
+</div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -326,10 +323,9 @@ later.</td></tr>
     variable is present and equal to the ignore-value, all policies will
     be ignored.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # downgrade if POLICY_CONTROL was present<br />
-    PolicyEnvironment POLICY_CONTROL log ignore<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># downgrade if POLICY_CONTROL was present
+PolicyEnvironment POLICY_CONTROL log ignore</pre>
+</div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -346,21 +342,16 @@ later.</td></tr>
 </table>
     <p>Master switch to enable or disable policies for a given URL space.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # enabled by default<br />
-    &lt;Location /&gt;<br />
-    <span class="indent">
-      PolicyFilter on<br />
-    </span>
-    &lt;/Location&gt;<br />
-    <br />
-    # suppress policy protection for server-status<br />
-    &lt;Location /server-status&gt;<br />
-    <span class="indent">
-      PolicyFilter off<br />
-    </span>
-    &lt;/Location&gt;<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># enabled by default
+&lt;Location "/"&gt;
+  PolicyFilter on
+&lt;/Location&gt;
+
+# suppress policy protection for server-status
+&lt;Location "/server-status"&gt;
+  PolicyFilter off
+&lt;/Location&gt;</pre>
+</div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -379,10 +370,9 @@ later.</td></tr>
     <code>Content-Length</code> header and a <code>Transfer-Encoding</code>
     of <code>chunked</code> will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # missing Content-Length or Transfer-Encoding should be rejected<br />
-    PolicyKeepalive enforce<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># missing Content-Length or Transfer-Encoding should be rejected
+PolicyKeepalive enforce</pre>
+</div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -416,10 +406,9 @@ later.</td></tr>
     <p>When logged or enforced, a response that lacks an explicit
     <code>Content-Length</code> header will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # missing Content-Length header should be rejected<br />
-    PolicyLength enforce<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># missing Content-Length header should be rejected
+PolicyLength enforce</pre>
+</div>
 
 </div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
@@ -455,10 +444,9 @@ later.</td></tr>
     <code>Expires</code> header, or where the explicit freshness lifetime is
     smaller than the given value, will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # reject responses with a freshness lifetime shorter than a day<br />
-    PolicyMaxage enforce 86400<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># reject responses with a freshness lifetime shorter than a day
+PolicyMaxage enforce 86400</pre>
+</div>
 
 
 </div>
@@ -494,10 +482,9 @@ later.</td></tr>
     using the <code>Cache-Control</code> or <code>Pragma</code> headers will
     be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # Cache-Control: no-cache will be rejected<br />
-    PolicyNocache enforce<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># Cache-Control: no-cache will be rejected
+PolicyNocache enforce</pre>
+</div>
 
 
 </div>
@@ -533,15 +520,13 @@ later.</td></tr>
     header, where the <code>Content-Type</code> header is malformed, or where the
     header does not match the given pattern or patterns will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # enforce json or XML<br />
-    PolicyType enforce application/json text/xml<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># enforce json or XML
+PolicyType enforce application/json text/xml</pre>
+</div>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # malformed content type should be rejected<br />
-    PolicyType enforce */*<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># malformed content type should be rejected
+PolicyType enforce */*</pre>
+</div>
 
 
 </div>
@@ -577,10 +562,9 @@ later.</td></tr>
     <code>ETag</code> header or a <code>Last-Modified</code> header, or where
     either header is syntactically incorrect, will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # no ETag or Last-Modified will be rejected<br />
-    PolicyValidation enforce<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># no ETag or Last-Modified will be rejected
+PolicyValidation enforce</pre>
+</div>
 
 
 </div>
@@ -616,10 +600,9 @@ later.</td></tr>
     header which in turn contains one of the headers listed, will be
     rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # reject reponses with "User-Agent" listed in the Vary header<br />
-    PolicyVary enforce User-Agent<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># reject reponses with "User-Agent" listed in the Vary header
+PolicyVary enforce User-Agent</pre>
+</div>
 
 
 </div>
@@ -654,10 +637,9 @@ later.</td></tr>
     <p>When logged or enforced, a request with a version lower than specified
     will be rejected.</p>
 
-    <div class="example"><h3>Example</h3><p><code>
-    # reject requests with an HTTP version older than HTTP/1.1<br />
-    PolicyVersion enforce HTTP/1.1<br />
-    </code></p></div>
+    <div class="example"><h3>Example</h3><pre class="prettyprint lang-config"># reject requests with an HTTP version older than HTTP/1.1
+PolicyVersion enforce HTTP/1.1</pre>
+</div>
 
 
 </div>
@@ -680,7 +662,28 @@ later.</td></tr>
 </div>
 <div class="bottomlang">
 <p><span>Available Languages: </span><a href="../en/mod/mod_policy.html" title="English">&nbsp;en&nbsp;</a></p>
-</div><div id="footer">
-<p class="apache">Copyright 2012 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="../faq/">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div>
+</div><div class="top"><a href="#page-header"><img src="../images/up.gif" alt="top" /></a></div><div class="section"><h2><a id="comments_section" name="comments_section">Comments</a></h2><div class="warning"><strong>Notice:</strong><br />This is not a Q&amp;A section. Comments placed here should be pointed towards suggestions on improving the documentation or server, and may be removed again by our moderators if they are either implemented or considered invalid/off-topic. Questions on how to manage the Apache HTTP Server should be directed at either our IRC channel, #httpd, on Freenode, or sent to our <a href="http://httpd.apache.org/lists.html">mailing lists</a>.</div>
+<script type="text/javascript"><!--//--><![CDATA[//><!--
+var comments_shortname = 'httpd';
+var comments_identifier = 'http://httpd.apache.org/docs/trunk/mod/mod_policy.html';
+(function(w, d) {
+    if (w.location.hostname.toLowerCase() == "httpd.apache.org") {
+        d.write('<div id="comments_thread"><\/div>');
+        var s = d.createElement('script');
+        s.type = 'text/javascript';
+        s.async = true;
+        s.src = 'https://comments.apache.org/show_comments.lua?site=' + comments_shortname + '&page=' + comments_identifier;
+        (d.getElementsByTagName('head')[0] || d.getElementsByTagName('body')[0]).appendChild(s);
+    }
+    else {
+        d.write('<div id="comments_thread">Comments are disabled for this page at the moment.<\/div>');
+    }
+})(window, document);
+//--><!]]></script></div><div id="footer">
+<p class="apache">Copyright 2016 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossary</a> | <a href="../sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+if (typeof(prettyPrint) !== 'undefined') {
+    prettyPrint();
+}
+//--><!]]></script>
 </body></html>

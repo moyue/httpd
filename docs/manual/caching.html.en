@@ -1,19 +1,24 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head><!--
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="Content-Type" />
+<!--
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
               This file is generated from xml source: DO NOT EDIT
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       -->
-<title>Caching Guide - Apache HTTP Server</title>
+<title>Caching Guide - Apache HTTP Server Version 2.5</title>
 <link href="./style/css/manual.css" rel="stylesheet" media="all" type="text/css" title="Main stylesheet" />
 <link href="./style/css/manual-loose-100pc.css" rel="alternate stylesheet" media="all" type="text/css" title="No Sidebar - Default font size" />
-<link href="./style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" />
+<link href="./style/css/manual-print.css" rel="stylesheet" media="print" type="text/css" /><link rel="stylesheet" type="text/css" href="./style/css/prettify.css" />
+<script src="./style/scripts/prettify.min.js" type="text/javascript">
+</script>
+
 <link href="./images/favicon.ico" rel="shortcut icon" /></head>
 <body id="manual-page"><div id="page-header">
-<p class="menu"><a href="./mod/">Modules</a> | <a href="./mod/directives.html">Directives</a> | <a href="./faq/">FAQ</a> | <a href="./glossary.html">Glossary</a> | <a href="./sitemap.html">Sitemap</a></p>
+<p class="menu"><a href="./mod/">Modules</a> | <a href="./mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="./glossary.html">Glossary</a> | <a href="./sitemap.html">Sitemap</a></p>
 <p class="apache">Apache HTTP Server Version 2.5</p>
-<img alt="" src="./images/feather.gif" /></div>
+<img alt="" src="./images/feather.png" /></div>
 <div class="up"><a href="./"><img title="&lt;-" alt="&lt;-" src="./images/left.gif" /></a></div>
 <div id="path">
 <a href="http://www.apache.org/">Apache</a> &gt; <a href="http://httpd.apache.org/">HTTP Server</a> &gt; <a href="http://httpd.apache.org/docs/">Documentation</a> &gt; <a href="./">Version 2.5</a></div><div id="page-content"><div id="preamble"><h1>Caching Guide</h1>
@@ -30,15 +35,16 @@
   </div>
 <div id="quickview"><ul id="toc"><li><img alt="" src="./images/down.gif" /> <a href="#introduction">Introduction</a></li>
 <li><img alt="" src="./images/down.gif" /> <a href="#http-caching">Three-state RFC2616 HTTP caching</a></li>
-<li><img alt="" src="./images/down.gif" /> <a href="#socache-caching">Two-state Key/Value Shared Object Caching</a></li>
+<li><img alt="" src="./images/down.gif" /> <a href="#examples">Cache Setup Examples</a></li>
+<li><img alt="" src="./images/down.gif" /> <a href="#socache-caching">General Two-state Key/Value Shared Object Caching</a></li>
 <li><img alt="" src="./images/down.gif" /> <a href="#file-caching">Specialized File Caching</a></li>
 <li><img alt="" src="./images/down.gif" /> <a href="#security">Security Considerations</a></li>
-</ul></div>
+</ul><h3>See also</h3><ul class="seealso"><li><a href="#comments_section">Comments</a></li></ul></div>
 <div class="top"><a href="#page-header"><img alt="top" src="./images/up.gif" /></a></div>
 <div class="section">
 <h2><a name="introduction" id="introduction">Introduction</a></h2>
     
-    
+
     <p>The Apache HTTP server offers a range of caching features that
     are designed to improve the performance of the server in various
     ways.</p>
@@ -97,7 +103,7 @@
     <table class="related"><tr><th>Related Modules</th><th>Related Directives</th></tr><tr><td><ul><li><code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code></li><li><code class="module"><a href="./mod/mod_cache_disk.html">mod_cache_disk</a></code></li></ul></td><td><ul><li><code class="directive"><a href="./mod/mod_cache.html#cacheenable">CacheEnable</a></code></li><li><code class="directive"><a href="./mod/mod_cache.html#cachedisable">CacheDisable</a></code></li><li><code class="directive"><a href="./mod/core.html#usecanonicalname">UseCanonicalName</a></code></li><li><code class="directive"><a href="./mod/mod_negotiation.html#cachenegotiateddocs">CacheNegotiatedDocs</a></code></li></ul></td></tr></table>
 
     <p>The HTTP protocol contains built in support for an in-line caching
-    mechanism 
+    mechanism
     <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html">
     described by section 13 of RFC2616</a>, and the
     <code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code> module can be used to take advantage of
@@ -172,11 +178,15 @@
 
               <p>In this scenario, the cache behaves as if it has been "bolted
               on" to the front of the server.</p>
-              
+
               <p>This mode offers the best performance, as the majority of
               server processing is bypassed. This mode however also bypasses the
               authentication and authorization phases of server processing, so
               this mode should be chosen with care when this is important.</p>
+
+              <p> Requests with an "Authorization" header (for example, HTTP Basic
+              Authentication) are neither cacheable nor served from the cache
+              when <code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code> is running in this phase.</p>
           </dd>
           <dt>Normal handler phase</dt>
           <dd>
@@ -230,7 +240,7 @@
       explicit freshness lifetime with the <code>Cache-Control</code>
       header's <code>max-age</code> or <code>s-maxage</code> fields, or
       by including an <code>Expires</code> header.</p>
-      
+
       <p>At the same time, the origin server defined freshness lifetime can
       be overridden by a client when the client presents their own
       <code>Cache-Control</code> header within the request. In this case,
@@ -295,7 +305,7 @@
       see if the file has changed in size or modification time. As such, even
       local content may still be served faster from the cache if it has not
       changed.</p>
-      
+
       <p>Origin servers should make every effort to support conditional
       requests as is practical, however if conditional requests are not
       supported, the origin will respond as if the request was not
@@ -368,7 +378,7 @@
       particulars of the request that are not covered by HTTP negotiation,
       should not be cached. This content should declare itself uncacheable
       using the <code>Cache-Control</code> header.</p>
-      
+
       <p>If content changes often, expressed by a freshness lifetime of minutes
       or seconds, the content can still be cached, however it is highly
       desirable that the origin server supports
@@ -388,7 +398,7 @@
       based on the value of headers in the request, for example to serve
       multiple languages at the same URL, HTTP's caching mechanism makes it
       possible to cache multiple variants of the same page at the same URL.</p>
-      
+
       <p>This is done by the origin server adding a <code>Vary</code> header
       to indicate which headers must be taken into account by a cache when
       determining whether two variants are different from one another.</p>
@@ -402,12 +412,20 @@ Vary: negotiate,accept-language,accept-charset
       <p><code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code> will only serve the cached content to
       requesters with accept-language and accept-charset headers
       matching those of the original request.</p>
-      
+
       <p>Multiple variants of the content can be cached side by side,
       <code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code> uses the <code>Vary</code> header and the
       corresponding values of the request headers listed by <code>Vary</code>
       to decide on which of many variants to return to the client.</p>
     
+
+  </div><div class="top"><a href="#page-header"><img alt="top" src="./images/up.gif" /></a></div>
+<div class="section">
+<h2><a name="examples" id="examples">Cache Setup Examples</a></h2>
+
+    
+
+    <table class="related"><tr><th>Related Modules</th><th>Related Directives</th></tr><tr><td><ul><li><code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code></li><li><code class="module"><a href="./mod/mod_cache_disk.html">mod_cache_disk</a></code></li><li><code class="module"><a href="./mod/mod_cache_socache.html">mod_cache_socache</a></code></li><li><code class="module"><a href="./mod/mod_socache_memcache.html">mod_socache_memcache</a></code></li></ul></td><td><ul><li><code class="directive"><a href="./mod/mod_cache.html#cacheenable">CacheEnable</a></code></li><li><code class="directive"><a href="./mod/mod_cache_disk.html#cacheroot">CacheRoot</a></code></li><li><code class="directive"><a href="./mod/mod_cache_disk.html#cachedirlevels">CacheDirLevels</a></code></li><li><code class="directive"><a href="./mod/mod_cache_disk.html#cachedirlength">CacheDirLength</a></code></li><li><code class="directive"><a href="./mod/mod_cache_socache.html#cachesocache">CacheSocache</a></code></li></ul></td></tr></table>
 
     <h3><a name="disk" id="disk">Caching to Disk</a></h3>
       
@@ -418,12 +436,11 @@ Vary: negotiate,accept-language,accept-charset
 
       <p>Typically the module will be configured as so;</p>
 
-      <div class="example"><p><code>
-CacheRoot   /var/cache/apache/<br />
-CacheEnable disk /<br />
-CacheDirLevels 2<br />
-CacheDirLength 1
-      </code></p></div>
+      <pre class="prettyprint lang-config">CacheRoot   "/var/cache/apache/"
+CacheEnable disk /
+CacheDirLevels 2
+CacheDirLength 1</pre>
+
 
       <p>Importantly, as the cached files are locally stored, operating system
       in-memory caching will typically be applied to their access also. So
@@ -508,7 +525,7 @@ CacheDirLength 1
       or more to process very large (tens of gigabytes) caches and if you are
       running it from cron it is recommended that you determine how long a typical
       run takes, to avoid running more than one instance at a time.</p>
- 
+
       <p>It is also recommended that an appropriate "nice" level is chosen for
       htcacheclean so that the tool does not cause excessive disk io while the
       server is running.</p>
@@ -524,14 +541,50 @@ CacheDirLength 1
       leave enough "grow room" following a clean.</p>
     
 
+    <h3><a name="memcache" id="memcache">Caching to memcached</a></h3>
+      
+
+      <p>Using the <code class="module"><a href="./mod/mod_cache_socache.html">mod_cache_socache</a></code> module, <code class="module"><a href="./mod/mod_cache.html">mod_cache</a></code>
+      can cache data from a variety of implementations (aka: "providers"). Using the
+      <code class="module"><a href="./mod/mod_socache_memcache.html">mod_socache_memcache</a></code> module, for example, one can specify that
+      <a href="http://memcached.org">memcached</a> is to be used as the
+      the backend storage mechanism.</p>
+
+      <p>Typically the module will be configured as so:</p>
+
+      <pre class="prettyprint lang-config">CacheEnable socache /
+CacheSocache memcache:memcd.example.com:11211</pre>
+
+
+      <p>Additional <code>memcached</code> servers can be specified by
+      appending them to the end of the <code>CacheSocache memcache:</code>
+      line separated by commas:</p>
+
+      <pre class="prettyprint lang-config">CacheEnable socache /
+CacheSocache memcache:mem1.example.com:11211,mem2.example.com:11212</pre>
+
+
+      <p>This format is also used with the other various <code class="module"><a href="./mod/mod_cache_socache.html">mod_cache_socache</a></code>
+      providers. For example:</p>
+
+      <pre class="prettyprint lang-config">CacheEnable socache /
+CacheSocache shmcb:/path/to/datafile(512000)</pre>
+
+
+      <pre class="prettyprint lang-config">CacheEnable socache /
+CacheSocache dbm:/path/to/datafile</pre>
+
+
+    
+
   </div><div class="top"><a href="#page-header"><img alt="top" src="./images/up.gif" /></a></div>
 <div class="section">
-<h2><a name="socache-caching" id="socache-caching">Two-state Key/Value Shared Object Caching</a></h2>
+<h2><a name="socache-caching" id="socache-caching">General Two-state Key/Value Shared Object Caching</a></h2>
 
     
 
     <table class="related"><tr><th>Related Modules</th><th>Related Directives</th></tr><tr><td><ul><li><code class="module"><a href="./mod/mod_authn_socache.html">mod_authn_socache</a></code></li><li><code class="module"><a href="./mod/mod_socache_dbm.html">mod_socache_dbm</a></code></li><li><code class="module"><a href="./mod/mod_socache_dc.html">mod_socache_dc</a></code></li><li><code class="module"><a href="./mod/mod_socache_memcache.html">mod_socache_memcache</a></code></li><li><code class="module"><a href="./mod/mod_socache_shmcb.html">mod_socache_shmcb</a></code></li><li><code class="module"><a href="./mod/mod_ssl.html">mod_ssl</a></code></li></ul></td><td><ul><li><code class="directive"><a href="./mod/mod_authn_socache.html#authncachesocache">AuthnCacheSOCache</a></code></li><li><code class="directive"><a href="./mod/mod_ssl.html#sslsessioncache">SSLSessionCache</a></code></li><li><code class="directive"><a href="./mod/mod_ssl.html#sslstaplingcache">SSLStaplingCache</a></code></li></ul></td></tr></table>
-    
+
     <p>The Apache HTTP server offers a low level shared object cache for
     caching information such as SSL sessions, or authentication credentials,
     within the <a href="socache.html">socache</a> interface.</p>
@@ -610,9 +663,8 @@ CacheDirLength 1
         instructs httpd to open the file when it is started and to re-use
         this file-handle for all subsequent access to this file.</p>
 
-        <div class="example"><p><code>
-        CacheFile /usr/local/apache2/htdocs/index.html
-        </code></p></div>
+        <pre class="prettyprint lang-config">CacheFile /usr/local/apache2/htdocs/index.html</pre>
+
 
         <p>If you intend to cache a large number of files in this manner, you
         must ensure that your operating system's limit for the number of open
@@ -663,8 +715,7 @@ CacheDirLength 1
         the difference in the time it takes to read a file for the first time
         and the second time;</p>
 
-        <div class="example"><pre>
-colm@coroebus:~$ time cat testfile &gt; /dev/null
+        <div class="example"><pre>colm@coroebus:~$ time cat testfile &gt; /dev/null
 real    0m0.065s
 user    0m0.000s
 sys     0m0.001s
@@ -701,9 +752,8 @@ sys     0m0.000s</pre></div>
         start time (using the mmap system call). httpd will use the in-memory
         contents for all subsequent accesses to this file.</p>
 
-        <div class="example"><p><code>
-        MMapFile /usr/local/apache2/htdocs/index.html
-        </code></p></div>
+        <pre class="prettyprint lang-config">MMapFile /usr/local/apache2/htdocs/index.html</pre>
+
 
         <p>As with the
         <code class="directive"><a href="./mod/mod_file_cache.html#cachefile">CacheFile</a></code> directive, any
@@ -813,7 +863,7 @@ sys     0m0.000s</pre></div>
       on the popularity of the particular web site thousands or millions of
       duplicate cache entries could be created for the same URL, crowding
       out other entries in the cache.</p>
-      
+
       <p>In other cases, there may be a need to change the URL of a particular
       resource on every request, usually by adding a "cachebuster" string to
       the URL. If this content is declared cacheable by a server for a
@@ -830,7 +880,28 @@ sys     0m0.000s</pre></div>
 <p><span>Available Languages: </span><a href="./en/caching.html" title="English">&nbsp;en&nbsp;</a> |
 <a href="./fr/caching.html" hreflang="fr" rel="alternate" title="Français">&nbsp;fr&nbsp;</a> |
 <a href="./tr/caching.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a></p>
-</div><div id="footer">
-<p class="apache">Copyright 2012 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
-<p class="menu"><a href="./mod/">Modules</a> | <a href="./mod/directives.html">Directives</a> | <a href="./faq/">FAQ</a> | <a href="./glossary.html">Glossary</a> | <a href="./sitemap.html">Sitemap</a></p></div>
+</div><div class="top"><a href="#page-header"><img src="./images/up.gif" alt="top" /></a></div><div class="section"><h2><a id="comments_section" name="comments_section">Comments</a></h2><div class="warning"><strong>Notice:</strong><br />This is not a Q&amp;A section. Comments placed here should be pointed towards suggestions on improving the documentation or server, and may be removed again by our moderators if they are either implemented or considered invalid/off-topic. Questions on how to manage the Apache HTTP Server should be directed at either our IRC channel, #httpd, on Freenode, or sent to our <a href="http://httpd.apache.org/lists.html">mailing lists</a>.</div>
+<script type="text/javascript"><!--//--><![CDATA[//><!--
+var comments_shortname = 'httpd';
+var comments_identifier = 'http://httpd.apache.org/docs/trunk/caching.html';
+(function(w, d) {
+    if (w.location.hostname.toLowerCase() == "httpd.apache.org") {
+        d.write('<div id="comments_thread"><\/div>');
+        var s = d.createElement('script');
+        s.type = 'text/javascript';
+        s.async = true;
+        s.src = 'https://comments.apache.org/show_comments.lua?site=' + comments_shortname + '&page=' + comments_identifier;
+        (d.getElementsByTagName('head')[0] || d.getElementsByTagName('body')[0]).appendChild(s);
+    }
+    else {
+        d.write('<div id="comments_thread">Comments are disabled for this page at the moment.<\/div>');
+    }
+})(window, document);
+//--><!]]></script></div><div id="footer">
+<p class="apache">Copyright 2016 The Apache Software Foundation.<br />Licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="menu"><a href="./mod/">Modules</a> | <a href="./mod/quickreference.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="./glossary.html">Glossary</a> | <a href="./sitemap.html">Sitemap</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
+if (typeof(prettyPrint) !== 'undefined') {
+    prettyPrint();
+}
+//--><!]]></script>
 </body></html>

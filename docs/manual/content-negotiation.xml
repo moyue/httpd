@@ -74,7 +74,7 @@
     <p>httpd supports 'server driven' content negotiation, as
     defined in the HTTP/1.1 specification. It fully supports the
     <code>Accept</code>, <code>Accept-Language</code>,
-    <code>Accept-Charset</code> and<code>Accept-Encoding</code>
+    <code>Accept-Charset</code> and <code>Accept-Encoding</code>
     request headers. httpd also supports 'transparent'
     content negotiation, which is an experimental negotiation
     protocol defined in RFC 2295 and RFC 2296. It does not offer
@@ -120,7 +120,9 @@
     defines a file suffix as <code>type-map</code>; this is best done
     with</p>
 
-<example>AddHandler type-map .var</example>
+    <highlight language="config">
+AddHandler type-map .var
+    </highlight>
 
     <p>in the server configuration file.</p>
 
@@ -223,7 +225,9 @@
     module="mod_dir">DirectoryIndex</directive> directive, if the
     server is trying to index a directory. If the configuration files
     specify</p>
-<example>DirectoryIndex index</example>
+    <highlight language="config">
+DirectoryIndex index
+    </highlight>
     <p>then the server will arbitrate between <code>index.html</code>
     and <code>index.html3</code> if both are present. If neither
     are present, and <code>index.cgi</code> is there, the server
@@ -512,8 +516,10 @@
     the normal negotiation process applies.</p>
 
     <example><title>Example</title>
-      SetEnvIf Cookie "language=(.+)" prefer-language=$1<br />
-      Header append Vary cookie
+    <highlight language="config">
+SetEnvIf Cookie "language=(.+)" prefer-language=$1
+Header append Vary cookie
+    </highlight>
     </example>
 </section>
 </section>

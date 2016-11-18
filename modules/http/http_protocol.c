@@ -62,8 +62,12 @@ APLOG_USE_MODULE(http);
 
 /* New Apache routine to map status codes into array indicies
  *  e.g.  100 -> 0,  101 -> 1,  200 -> 2 ...
- * The number of status lines must equal the value of RESPONSE_CODES (httpd.h)
- * and must be listed in order.
+ * The number of status lines must equal the value of
+ * RESPONSE_CODES (httpd.h) and must be listed in order.
+ * No gaps are allowed between X00 and the largest Xnn
+ * for any X (see ap_index_of_response).
+ * When adding a new code here, add a define to httpd.h
+ * as well.
  */
 
 static const char * const status_lines[RESPONSE_CODES] =
@@ -80,58 +84,101 @@ static const char * const status_lines[RESPONSE_CODES] =
     "205 Reset Content",
     "206 Partial Content",
     "207 Multi-Status",
-#define LEVEL_300 11
+    "208 Already Reported",
+    NULL, /* 209 */
+    NULL, /* 210 */
+    NULL, /* 211 */
+    NULL, /* 212 */
+    NULL, /* 213 */
+    NULL, /* 214 */
+    NULL, /* 215 */
+    NULL, /* 216 */
+    NULL, /* 217 */
+    NULL, /* 218 */
+    NULL, /* 219 */
+    NULL, /* 220 */
+    NULL, /* 221 */
+    NULL, /* 222 */
+    NULL, /* 223 */
+    NULL, /* 224 */
+    NULL, /* 225 */
+    "226 IM Used",
+#define LEVEL_300 30
     "300 Multiple Choices",
     "301 Moved Permanently",
     "302 Found",
     "303 See Other",
     "304 Not Modified",
     "305 Use Proxy",
-    "306 unused",
+    NULL, /* 306 */
     "307 Temporary Redirect",
-#define LEVEL_400 19
+    "308 Permanent Redirect",
+#define LEVEL_400 39
     "400 Bad Request",
-    "401 Authorization Required",
+    "401 Unauthorized",
     "402 Payment Required",
     "403 Forbidden",
     "404 Not Found",
     "405 Method Not Allowed",
     "406 Not Acceptable",
     "407 Proxy Authentication Required",
-    "408 Request Time-out",
+    "408 Request Timeout",
     "409 Conflict",
     "410 Gone",
     "411 Length Required",
     "412 Precondition Failed",
     "413 Request Entity Too Large",
-    "414 Request-URI Too Large",
+    "414 Request-URI Too Long",
     "415 Unsupported Media Type",
     "416 Requested Range Not Satisfiable",
     "417 Expectation Failed",
-    "418 unused",
-    "419 unused",
-    "420 unused",
-    "421 unused",
+    "418 I'm A Teapot",
+    NULL, /* 419 */
+    NULL, /* 420 */
+    "421 Misdirected Request",
     "422 Unprocessable Entity",
     "423 Locked",
     "424 Failed Dependency",
-    /* This is a hack, but it is required for ap_index_of_response
-     * to work with 426.
-     */
-    "425 No code",
+    NULL, /* 425 */
     "426 Upgrade Required",
-#define LEVEL_500 46
+    NULL, /* 427 */
+    "428 Precondition Required",
+    "429 Too Many Requests",
+    NULL, /* 430 */
+    "431 Request Header Fields Too Large",
+    NULL, /* 432 */
+    NULL, /* 433 */
+    NULL, /* 434 */
+    NULL, /* 435 */
+    NULL, /* 436 */
+    NULL, /* 437 */
+    NULL, /* 438 */
+    NULL, /* 439 */
+    NULL, /* 440 */
+    NULL, /* 441 */
+    NULL, /* 442 */
+    NULL, /* 443 */
+    NULL, /* 444 */
+    NULL, /* 445 */
+    NULL, /* 446 */
+    NULL, /* 447 */
+    NULL, /* 448 */
+    NULL, /* 449 */
+    NULL, /* 450 */
+    "451 Unavailable For Legal Reasons",
+#define LEVEL_500 91
     "500 Internal Server Error",
-    "501 Method Not Implemented",
+    "501 Not Implemented",
     "502 Bad Gateway",
-    "503 Service Temporarily Unavailable",
-    "504 Gateway Time-out",
+    "503 Service Unavailable",
+    "504 Gateway Timeout",
     "505 HTTP Version Not Supported",
     "506 Variant Also Negotiates",
     "507 Insufficient Storage",
-    "508 unused",
-    "509 unused",
-    "510 Not Extended"
+    "508 Loop Detected",
+    NULL, /* 509 */
+    "510 Not Extended",
+    "511 Network Authentication Required"
 };
 
 APR_HOOK_STRUCT(
@@ -279,13 +326,229 @@ AP_DECLARE(int) ap_set_keepalive(request_rec *r)
     return 0;
 }
 
+AP_DECLARE(ap_condition_e) ap_condition_if_match(request_rec *r,
+        apr_table_t *headers)
+{
+    const char *if_match, *etag;
+
+    /* A server MUST use the strong comparison function (see section 13.3.3)
+     * to compare the entity tags in If-Match.
+     */
+    if ((if_match = apr_table_get(r->headers_in, "If-Match")) != NULL) {
+        if (if_match[0] == '*'
+                || ((etag = apr_table_get(headers, "ETag")) != NULL
+                        && ap_find_etag_strong(r->pool, if_match, etag))) {
+            return AP_CONDITION_STRONG;
+        }
+        else {
+            return AP_CONDITION_NOMATCH;
+        }
+    }
+
+    return AP_CONDITION_NONE;
+}
+
+AP_DECLARE(ap_condition_e) ap_condition_if_unmodified_since(request_rec *r,
+        apr_table_t *headers)
+{
+    const char *if_unmodified;
+
+    if_unmodified = apr_table_get(r->headers_in, "If-Unmodified-Since");
+    if (if_unmodified) {
+        apr_int64_t mtime, reqtime;
+
+        apr_time_t ius = apr_time_sec(apr_date_parse_http(if_unmodified));
+
+        /* All of our comparisons must be in seconds, because that's the
+         * highest time resolution the HTTP specification allows.
+         */
+        mtime = apr_time_sec(apr_date_parse_http(
+                        apr_table_get(headers, "Last-Modified")));
+        if (mtime == APR_DATE_BAD) {
+            mtime = apr_time_sec(r->mtime ? r->mtime : apr_time_now());
+        }
+
+        reqtime = apr_time_sec(apr_date_parse_http(
+                        apr_table_get(headers, "Date")));
+        if (!reqtime) {
+            reqtime = apr_time_sec(r->request_time);
+        }
+
+        if ((ius != APR_DATE_BAD) && (mtime > ius)) {
+            if (reqtime < mtime + 60) {
+                if (apr_table_get(r->headers_in, "Range")) {
+                    /* weak matches not allowed with Range requests */
+                    return AP_CONDITION_NOMATCH;
+                }
+                else {
+                    return AP_CONDITION_WEAK;
+                }
+            }
+            else {
+                return AP_CONDITION_STRONG;
+            }
+        }
+        else {
+            return AP_CONDITION_NOMATCH;
+        }
+    }
+
+    return AP_CONDITION_NONE;
+}
+
+AP_DECLARE(ap_condition_e) ap_condition_if_none_match(request_rec *r,
+        apr_table_t *headers)
+{
+    const char *if_nonematch, *etag;
+
+    if_nonematch = apr_table_get(r->headers_in, "If-None-Match");
+    if (if_nonematch != NULL) {
+
+        if (if_nonematch[0] == '*') {
+            return AP_CONDITION_STRONG;
+        }
+
+        /* See section 13.3.3 for rules on how to determine if two entities tags
+         * match. The weak comparison function can only be used with GET or HEAD
+         * requests.
+         */
+        if (r->method_number == M_GET) {
+            if ((etag = apr_table_get(headers, "ETag")) != NULL) {
+                if (apr_table_get(r->headers_in, "Range")) {
+                    if (ap_find_etag_strong(r->pool, if_nonematch, etag)) {
+                        return AP_CONDITION_STRONG;
+                    }
+                }
+                else {
+                    if (ap_find_etag_weak(r->pool, if_nonematch, etag)) {
+                        return AP_CONDITION_WEAK;
+                    }
+                }
+            }
+        }
+
+        else if ((etag = apr_table_get(headers, "ETag")) != NULL
+                && ap_find_etag_strong(r->pool, if_nonematch, etag)) {
+            return AP_CONDITION_STRONG;
+        }
+        return AP_CONDITION_NOMATCH;
+    }
+
+    return AP_CONDITION_NONE;
+}
+
+AP_DECLARE(ap_condition_e) ap_condition_if_modified_since(request_rec *r,
+        apr_table_t *headers)
+{
+    const char *if_modified_since;
+
+    if ((if_modified_since = apr_table_get(r->headers_in, "If-Modified-Since"))
+            != NULL) {
+        apr_int64_t mtime;
+        apr_int64_t ims, reqtime;
+
+        /* All of our comparisons must be in seconds, because that's the
+         * highest time resolution the HTTP specification allows.
+         */
+
+        mtime = apr_time_sec(apr_date_parse_http(
+                        apr_table_get(headers, "Last-Modified")));
+        if (mtime == APR_DATE_BAD) {
+            mtime = apr_time_sec(r->mtime ? r->mtime : apr_time_now());
+        }
+
+        reqtime = apr_time_sec(apr_date_parse_http(
+                        apr_table_get(headers, "Date")));
+        if (!reqtime) {
+            reqtime = apr_time_sec(r->request_time);
+        }
+
+        ims = apr_time_sec(apr_date_parse_http(if_modified_since));
+
+        if (ims >= mtime && ims <= reqtime) {
+            if (reqtime < mtime + 60) {
+                if (apr_table_get(r->headers_in, "Range")) {
+                    /* weak matches not allowed with Range requests */
+                    return AP_CONDITION_NOMATCH;
+                }
+                else {
+                    return AP_CONDITION_WEAK;
+                }
+            }
+            else {
+                return AP_CONDITION_STRONG;
+            }
+        }
+        else {
+            return AP_CONDITION_NOMATCH;
+        }
+    }
+
+    return AP_CONDITION_NONE;
+}
+
+AP_DECLARE(ap_condition_e) ap_condition_if_range(request_rec *r,
+        apr_table_t *headers)
+{
+    const char *if_range, *etag;
+
+    if ((if_range = apr_table_get(r->headers_in, "If-Range"))
+            && apr_table_get(r->headers_in, "Range")) {
+        if (if_range[0] == '"') {
+
+            if ((etag = apr_table_get(headers, "ETag"))
+                    && !strcmp(if_range, etag)) {
+                return AP_CONDITION_STRONG;
+            }
+            else {
+                return AP_CONDITION_NOMATCH;
+            }
+
+        }
+        else {
+            apr_int64_t mtime;
+            apr_int64_t rtime, reqtime;
+
+            /* All of our comparisons must be in seconds, because that's the
+             * highest time resolution the HTTP specification allows.
+             */
+
+            mtime = apr_time_sec(apr_date_parse_http(
+                            apr_table_get(headers, "Last-Modified")));
+            if (mtime == APR_DATE_BAD) {
+                mtime = apr_time_sec(r->mtime ? r->mtime : apr_time_now());
+            }
+
+            reqtime = apr_time_sec(apr_date_parse_http(
+                            apr_table_get(headers, "Date")));
+            if (!reqtime) {
+                reqtime = apr_time_sec(r->request_time);
+            }
+
+            rtime = apr_time_sec(apr_date_parse_http(if_range));
+
+            if (rtime == mtime) {
+                if (reqtime < mtime + 60) {
+                    /* weak matches not allowed with Range requests */
+                    return AP_CONDITION_NOMATCH;
+                }
+                else {
+                    return AP_CONDITION_STRONG;
+                }
+            }
+            else {
+                return AP_CONDITION_NOMATCH;
+            }
+        }
+    }
+
+    return AP_CONDITION_NONE;
+}
+
 AP_DECLARE(int) ap_meets_conditions(request_rec *r)
 {
-    const char *etag;
-    const char *if_match, *if_modified_since, *if_unmodified, *if_nonematch;
-    apr_time_t tmp_time;
-    apr_int64_t mtime;
-    int not_modified = 0;
+    int not_modified = -1; /* unset by default */
+    ap_condition_e cond;
 
     /* Check for conditional requests --- note that we only want to do
      * this if we are successful so far and we are not processing a
@@ -302,41 +565,27 @@ AP_DECLARE(int) ap_meets_conditions(request_rec *r)
         return OK;
     }
 
-    etag = apr_table_get(r->headers_out, "ETag");
-
-    /* All of our comparisons must be in seconds, because that's the
-     * highest time resolution the HTTP specification allows.
-     */
-    /* XXX: we should define a "time unset" constant */
-    tmp_time = ((r->mtime != 0) ? r->mtime : apr_time_now());
-    mtime =  apr_time_sec(tmp_time);
-
     /* If an If-Match request-header field was given
      * AND the field value is not "*" (meaning match anything)
      * AND if our strong ETag does not match any entity tag in that field,
      *     respond with a status of 412 (Precondition Failed).
      */
-    if ((if_match = apr_table_get(r->headers_in, "If-Match")) != NULL) {
-        if (if_match[0] != '*'
-            && (etag == NULL || etag[0] == 'W'
-                || !ap_find_list_item(r->pool, if_match, etag))) {
-            return HTTP_PRECONDITION_FAILED;
-        }
+    cond = ap_condition_if_match(r, r->headers_out);
+    if (AP_CONDITION_NOMATCH == cond) {
+        return HTTP_PRECONDITION_FAILED;
     }
-    else {
-        /* Else if a valid If-Unmodified-Since request-header field was given
-         * AND the requested resource has been modified since the time
-         * specified in this field, then the server MUST
-         *     respond with a status of 412 (Precondition Failed).
-         */
-        if_unmodified = apr_table_get(r->headers_in, "If-Unmodified-Since");
-        if (if_unmodified != NULL) {
-            apr_time_t ius = apr_date_parse_http(if_unmodified);
 
-            if ((ius != APR_DATE_BAD) && (mtime > apr_time_sec(ius))) {
-                return HTTP_PRECONDITION_FAILED;
-            }
-        }
+    /* Else if a valid If-Unmodified-Since request-header field was given
+     * AND the requested resource has been modified since the time
+     * specified in this field, then the server MUST
+     *     respond with a status of 412 (Precondition Failed).
+     */
+    cond = ap_condition_if_unmodified_since(r, r->headers_out);
+    if (AP_CONDITION_NOMATCH == cond) {
+        not_modified = 0;
+    }
+    else if (cond >= AP_CONDITION_WEAK) {
+        return HTTP_PRECONDITION_FAILED;
     }
 
     /* If an If-None-Match request-header field was given
@@ -351,27 +600,17 @@ AP_DECLARE(int) ap_meets_conditions(request_rec *r)
      * GET or HEAD allow weak etag comparison, all other methods require
      * strong comparison.  We can only use weak if it's not a range request.
      */
-    if_nonematch = apr_table_get(r->headers_in, "If-None-Match");
-    if (if_nonematch != NULL) {
+    cond = ap_condition_if_none_match(r, r->headers_out);
+    if (AP_CONDITION_NOMATCH == cond) {
+        not_modified = 0;
+    }
+    else if (cond >= AP_CONDITION_WEAK) {
         if (r->method_number == M_GET) {
-            if (if_nonematch[0] == '*') {
+            if (not_modified) {
                 not_modified = 1;
             }
-            else if (etag != NULL) {
-                if (apr_table_get(r->headers_in, "Range")) {
-                    not_modified = etag[0] != 'W'
-                                   && ap_find_list_item(r->pool,
-                                                        if_nonematch, etag);
-                }
-                else {
-                    not_modified = ap_find_list_item(r->pool,
-                                                     if_nonematch, etag);
-                }
-            }
         }
-        else if (if_nonematch[0] == '*'
-                 || (etag != NULL
-                     && ap_find_list_item(r->pool, if_nonematch, etag))) {
+        else {
             return HTTP_PRECONDITION_FAILED;
         }
     }
@@ -383,22 +622,27 @@ AP_DECLARE(int) ap_meets_conditions(request_rec *r)
      *    respond with a status of 304 (Not Modified).
      * A date later than the server's current request time is invalid.
      */
-    if (r->method_number == M_GET
-        && (not_modified || !if_nonematch)
-        && (if_modified_since =
-              apr_table_get(r->headers_in,
-                            "If-Modified-Since")) != NULL) {
-        apr_time_t ims_time;
-        apr_int64_t ims, reqtime;
-
-        ims_time = apr_date_parse_http(if_modified_since);
-        ims = apr_time_sec(ims_time);
-        reqtime = apr_time_sec(r->request_time);
-
-        not_modified = ims >= mtime && ims <= reqtime;
+    cond = ap_condition_if_modified_since(r, r->headers_out);
+    if (AP_CONDITION_NOMATCH == cond) {
+        not_modified = 0;
+    }
+    else if (cond >= AP_CONDITION_WEAK) {
+        if (r->method_number == M_GET) {
+            if (not_modified) {
+                not_modified = 1;
+            }
+        }
     }
 
-    if (not_modified) {
+    /* If an If-Range and an Range header is present, we must return
+     * 200 OK. The byterange filter will convert it to a range response.
+     */
+    cond = ap_condition_if_range(r, r->headers_out);
+    if (cond > AP_CONDITION_NONE) {
+        return OK;
+    }
+
+    if (not_modified == 1) {
         return HTTP_NOT_MODIFIED;
     }
 
@@ -444,8 +688,11 @@ AP_DECLARE(void) ap_method_registry_init(apr_pool_t *p)
                               apr_pool_cleanup_null);
 
     /* put all the standard methods into the registry hash to ease the
-       mapping operations between name and number */
+     * mapping operations between name and number
+     * HEAD is a special-instance of the GET method and shares the same ID
+     */
     register_one_method(p, "GET", M_GET);
+    register_one_method(p, "HEAD", M_GET);
     register_one_method(p, "PUT", M_PUT);
     register_one_method(p, "POST", M_POST);
     register_one_method(p, "DELETE", M_DELETE);
@@ -477,10 +724,6 @@ AP_DECLARE(int) ap_method_register(apr_pool_t *p, const char *methname)
 {
     int *methnum;
 
-    if (methods_registry == NULL) {
-        ap_method_registry_init(p);
-    }
-
     if (methname == NULL) {
         return M_INVALID;
     }
@@ -508,183 +751,6 @@ AP_DECLARE(int) ap_method_register(apr_pool_t *p, const char *methname)
     return cur_method_number++;
 }
 
-#define UNKNOWN_METHOD (-1)
-
-static int lookup_builtin_method(const char *method, apr_size_t len)
-{
-    /* Note: the following code was generated by the "shilka" tool from
-       the "cocom" parsing/compilation toolkit. It is an optimized lookup
-       based on analysis of the input keywords. Postprocessing was done
-       on the shilka output, but the basic structure and analysis is
-       from there. Should new HTTP methods be added, then manual insertion
-       into this code is fine, or simply re-running the shilka tool on
-       the appropriate input. */
-
-    /* Note: it is also quite reasonable to just use our method_registry,
-       but I'm assuming (probably incorrectly) we want more speed here
-       (based on the optimizations the previous code was doing). */
-
-    switch (len)
-    {
-    case 3:
-        switch (method[0])
-        {
-        case 'P':
-            return (method[1] == 'U'
-                    && method[2] == 'T'
-                    ? M_PUT : UNKNOWN_METHOD);
-        case 'G':
-            return (method[1] == 'E'
-                    && method[2] == 'T'
-                    ? M_GET : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 4:
-        switch (method[0])
-        {
-        case 'H':
-            return (method[1] == 'E'
-                    && method[2] == 'A'
-                    && method[3] == 'D'
-                    ? M_GET : UNKNOWN_METHOD);
-        case 'P':
-            return (method[1] == 'O'
-                    && method[2] == 'S'
-                    && method[3] == 'T'
-                    ? M_POST : UNKNOWN_METHOD);
-        case 'M':
-            return (method[1] == 'O'
-                    && method[2] == 'V'
-                    && method[3] == 'E'
-                    ? M_MOVE : UNKNOWN_METHOD);
-        case 'L':
-            return (method[1] == 'O'
-                    && method[2] == 'C'
-                    && method[3] == 'K'
-                    ? M_LOCK : UNKNOWN_METHOD);
-        case 'C':
-            return (method[1] == 'O'
-                    && method[2] == 'P'
-                    && method[3] == 'Y'
-                    ? M_COPY : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 5:
-        switch (method[2])
-        {
-        case 'T':
-            return (memcmp(method, "PATCH", 5) == 0
-                    ? M_PATCH : UNKNOWN_METHOD);
-        case 'R':
-            return (memcmp(method, "MERGE", 5) == 0
-                    ? M_MERGE : UNKNOWN_METHOD);
-        case 'C':
-            return (memcmp(method, "MKCOL", 5) == 0
-                    ? M_MKCOL : UNKNOWN_METHOD);
-        case 'B':
-            return (memcmp(method, "LABEL", 5) == 0
-                    ? M_LABEL : UNKNOWN_METHOD);
-        case 'A':
-            return (memcmp(method, "TRACE", 5) == 0
-                    ? M_TRACE : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 6:
-        switch (method[0])
-        {
-        case 'U':
-            switch (method[5])
-            {
-            case 'K':
-                return (memcmp(method, "UNLOCK", 6) == 0
-                        ? M_UNLOCK : UNKNOWN_METHOD);
-            case 'E':
-                return (memcmp(method, "UPDATE", 6) == 0
-                        ? M_UPDATE : UNKNOWN_METHOD);
-            default:
-                return UNKNOWN_METHOD;
-            }
-        case 'R':
-            return (memcmp(method, "REPORT", 6) == 0
-                    ? M_REPORT : UNKNOWN_METHOD);
-        case 'D':
-            return (memcmp(method, "DELETE", 6) == 0
-                    ? M_DELETE : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 7:
-        switch (method[1])
-        {
-        case 'P':
-            return (memcmp(method, "OPTIONS", 7) == 0
-                    ? M_OPTIONS : UNKNOWN_METHOD);
-        case 'O':
-            return (memcmp(method, "CONNECT", 7) == 0
-                    ? M_CONNECT : UNKNOWN_METHOD);
-        case 'H':
-            return (memcmp(method, "CHECKIN", 7) == 0
-                    ? M_CHECKIN : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 8:
-        switch (method[0])
-        {
-        case 'P':
-            return (memcmp(method, "PROPFIND", 8) == 0
-                    ? M_PROPFIND : UNKNOWN_METHOD);
-        case 'C':
-            return (memcmp(method, "CHECKOUT", 8) == 0
-                    ? M_CHECKOUT : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 9:
-        return (memcmp(method, "PROPPATCH", 9) == 0
-                ? M_PROPPATCH : UNKNOWN_METHOD);
-
-    case 10:
-        switch (method[0])
-        {
-        case 'U':
-            return (memcmp(method, "UNCHECKOUT", 10) == 0
-                    ? M_UNCHECKOUT : UNKNOWN_METHOD);
-        case 'M':
-            return (memcmp(method, "MKACTIVITY", 10) == 0
-                    ? M_MKACTIVITY : UNKNOWN_METHOD);
-        default:
-            return UNKNOWN_METHOD;
-        }
-
-    case 11:
-        return (memcmp(method, "MKWORKSPACE", 11) == 0
-                ? M_MKWORKSPACE : UNKNOWN_METHOD);
-
-    case 15:
-        return (memcmp(method, "VERSION-CONTROL", 15) == 0
-                ? M_VERSION_CONTROL : UNKNOWN_METHOD);
-
-    case 16:
-        return (memcmp(method, "BASELINE-CONTROL", 16) == 0
-                ? M_BASELINE_CONTROL : UNKNOWN_METHOD);
-
-    default:
-        return UNKNOWN_METHOD;
-    }
-
-    /* NOTREACHED */
-}
-
 /* Get the method number associated with the given string, assumed to
  * contain an HTTP method.  Returns M_INVALID if not recognized.
  *
@@ -695,18 +761,12 @@ static int lookup_builtin_method(const char *method, apr_size_t len)
 AP_DECLARE(int) ap_method_number_of(const char *method)
 {
     int len = strlen(method);
-    int which = lookup_builtin_method(method, len);
-
-    if (which != UNKNOWN_METHOD)
-        return which;
 
     /* check if the method has been dynamically registered */
-    if (methods_registry != NULL) {
-        int *methnum = apr_hash_get(methods_registry, method, len);
+    int *methnum = apr_hash_get(methods_registry, method, len);
 
-        if (methnum != NULL) {
-            return *methnum;
-        }
+    if (methnum != NULL) {
+        return *methnum;
     }
 
     return M_INVALID;
@@ -739,30 +799,52 @@ AP_DECLARE(const char *) ap_method_name_of(apr_pool_t *p, int methnum)
  * decides to define a high-numbered code before the lower numbers.
  * If that sad event occurs, replace the code below with a linear search
  * from status_lines[shortcut[i]] to status_lines[shortcut[i+1]-1];
+ * or use NULL to fill the gaps.
  */
-AP_DECLARE(int) ap_index_of_response(int status)
+static int index_of_response(int status)
 {
-    static int shortcut[6] = {0, LEVEL_200, LEVEL_300, LEVEL_400,
-    LEVEL_500, RESPONSE_CODES};
+    static int shortcut[6] = {0, LEVEL_200, LEVEL_300, LEVEL_400, LEVEL_500,
+                                 RESPONSE_CODES};
     int i, pos;
 
-    if (status < 100) {               /* Below 100 is illegal for HTTP status */
-        return LEVEL_500;
+    if (status < 100) {     /* Below 100 is illegal for HTTP status */
+        return -1;
+    }
+    if (status > 999) {     /* Above 999 is also illegal for HTTP status */
+        return -1;
     }
 
     for (i = 0; i < 5; i++) {
         status -= 100;
         if (status < 100) {
             pos = (status + shortcut[i]);
-            if (pos < shortcut[i + 1]) {
+            if (pos < shortcut[i + 1] && status_lines[pos] != NULL) {
                 return pos;
             }
             else {
-                return LEVEL_500;            /* status unknown (falls in gap) */
+                break;
             }
         }
     }
-    return LEVEL_500;                         /* 600 or above is also illegal */
+    return -2;              /* Status unknown (falls in gap) or above 600 */
+}
+
+AP_DECLARE(int) ap_index_of_response(int status)
+{
+    int index = index_of_response(status);
+    return (index < 0) ? LEVEL_500 : index;
+}
+
+AP_DECLARE(const char *) ap_get_status_line_ex(apr_pool_t *p, int status)
+{
+    int index = index_of_response(status);
+    if (index >= 0) {
+        return status_lines[index];
+    }
+    else if (index == -2) {
+        return apr_psprintf(p, "%i Status %i", status, status);
+    }
+    return status_lines[LEVEL_500];
 }
 
 AP_DECLARE(const char *) ap_get_status_line(int status)
@@ -771,11 +853,9 @@ AP_DECLARE(const char *) ap_get_status_line(int status)
 }
 
 /* Build the Allow field-value from the request handler method mask.
- * Note that we always allow TRACE, since it is handled below.
  */
 static char *make_allow(request_rec *r)
 {
-    char *list;
     apr_int64_t mask;
     apr_array_header_t *allow = apr_array_make(r->pool, 10, sizeof(char *));
     apr_hash_index_t *hi = apr_hash_first(r->pool, methods_registry);
@@ -803,25 +883,15 @@ static char *make_allow(request_rec *r)
     if (conf->trace_enable != AP_TRACE_DISABLE)
         *(const char **)apr_array_push(allow) = "TRACE";
 
-    list = apr_array_pstrcat(r->pool, allow, ',');
-
     /* ### this is rather annoying. we should enforce registration of
        ### these methods */
     if ((mask & (AP_METHOD_BIT << M_INVALID))
         && (r->allowed_methods->method_list != NULL)
         && (r->allowed_methods->method_list->nelts != 0)) {
-        int i;
-        char **xmethod = (char **) r->allowed_methods->method_list->elts;
-
-        /*
-         * Append all of the elements of r->allowed_methods->method_list
-         */
-        for (i = 0; i < r->allowed_methods->method_list->nelts; ++i) {
-            list = apr_pstrcat(r->pool, list, ",", xmethod[i], NULL);
-        }
+        apr_array_cat(allow, r->allowed_methods->method_list);
     }
 
-    return list;
+    return apr_array_pstrcat(r->pool, allow, ',');
 }
 
 AP_DECLARE(int) ap_send_http_options(request_rec *r)
@@ -887,6 +957,7 @@ static const char *get_canned_error_string(int status,
     case HTTP_MOVED_PERMANENTLY:
     case HTTP_MOVED_TEMPORARILY:
     case HTTP_TEMPORARY_REDIRECT:
+    case HTTP_PERMANENT_REDIRECT:
         return(apr_pstrcat(p,
                            "<p>The document has moved <a href=\"",
                            ap_escape_html(r->pool, location),
@@ -922,11 +993,12 @@ static const char *get_canned_error_string(int status,
                                   "error-notes",
                                   "</p>\n"));
     case HTTP_FORBIDDEN:
-        return(apr_pstrcat(p,
-                           "<p>You don't have permission to access ",
-                           ap_escape_html(r->pool, r->uri),
-                           "\non this server.</p>\n",
-                           NULL));
+        s1 = apr_pstrcat(p,
+                         "<p>You don't have permission to access ",
+                         ap_escape_html(r->pool, r->uri),
+                         "\non this server.<br />\n",
+                         NULL);
+        return(add_optional_notes(r, s1, "error-notes", "</p>\n"));
     case HTTP_NOT_FOUND:
         return(apr_pstrcat(p,
                            "<p>The requested URL ",
@@ -1048,6 +1120,14 @@ static const char *get_canned_error_string(int status,
                "connection to SSL, but your client doesn't support it.\n"
                "Either upgrade your client, or try requesting the page\n"
                "using https://\n");
+    case HTTP_PRECONDITION_REQUIRED:
+        return("<p>The request is required to be conditional.</p>\n");
+    case HTTP_TOO_MANY_REQUESTS:
+        return("<p>The user has sent too many requests\n"
+               "in a given amount of time.</p>\n");
+    case HTTP_REQUEST_HEADER_FIELDS_TOO_LARGE:
+        return("<p>The server refused this request because\n"
+               "the request header fields are too large.</p>\n");
     case HTTP_INSUFFICIENT_STORAGE:
         return("<p>The method could not be performed on the resource\n"
                "because the server is unable to store the\n"
@@ -1061,9 +1141,29 @@ static const char *get_canned_error_string(int status,
     case HTTP_GATEWAY_TIME_OUT:
         return("<p>The gateway did not receive a timely response\n"
                "from the upstream server or application.</p>\n");
+    case HTTP_LOOP_DETECTED:
+        return("<p>The server terminated an operation because\n"
+               "it encountered an infinite loop.</p>\n");
     case HTTP_NOT_EXTENDED:
         return("<p>A mandatory extension policy in the request is not\n"
                "accepted by the server for this resource.</p>\n");
+    case HTTP_NETWORK_AUTHENTICATION_REQUIRED:
+        return("<p>The client needs to authenticate to gain\n"
+               "network access.</p>\n");
+    case HTTP_IM_A_TEAPOT:
+        return("<p>The resulting entity body MAY be short and\n"
+                "stout.</p>\n");
+    case HTTP_MISDIRECTED_REQUEST:
+        return("<p>The client needs a new connection for this\n"
+               "request as the requested host name does not match\n"
+               "the Server Name Indication (SNI) in use for this\n"
+               "connection.</p>\n");
+    case HTTP_UNAVAILABLE_FOR_LEGAL_REASONS:
+        s1 = apr_pstrcat(p,
+                         "<p>Access to ", ap_escape_html(r->pool, r->uri),
+                         "\nhas been denied for legal reasons.<br />\n",
+                         NULL);
+        return(add_optional_notes(r, s1, "error-notes", "</p>\n"));
     default:                    /* HTTP_INTERNAL_SERVER_ERROR */
         /*
          * This comparison to expose error-notes could be modified to
@@ -1335,8 +1435,6 @@ AP_DECLARE(void) ap_copy_method_list(ap_method_list_t *dest,
 AP_DECLARE(int) ap_method_in_list(ap_method_list_t *l, const char *method)
 {
     int methnum;
-    int i;
-    char **methods;
 
     /*
      * If it's one of our known methods, use the shortcut and check the
@@ -1347,18 +1445,13 @@ AP_DECLARE(int) ap_method_in_list(ap_method_list_t *l, const char *method)
         return !!(l->method_mask & (AP_METHOD_BIT << methnum));
     }
     /*
-     * Otherwise, see if the method name is in the array or string names
+     * Otherwise, see if the method name is in the array of string names.
      */
     if ((l->method_list == NULL) || (l->method_list->nelts == 0)) {
         return 0;
     }
-    methods = (char **)l->method_list->elts;
-    for (i = 0; i < l->method_list->nelts; ++i) {
-        if (strcmp(method, methods[i]) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+
+    return ap_array_str_contains(l->method_list, method);
 }
 
 /*
@@ -1367,30 +1460,24 @@ AP_DECLARE(int) ap_method_in_list(ap_method_list_t *l, const char *method)
 AP_DECLARE(void) ap_method_list_add(ap_method_list_t *l, const char *method)
 {
     int methnum;
-    int i;
     const char **xmethod;
-    char **methods;
 
     /*
      * If it's one of our known methods, use the shortcut and use the
      * bitmask.
      */
     methnum = ap_method_number_of(method);
-    l->method_mask |= (AP_METHOD_BIT << methnum);
     if (methnum != M_INVALID) {
+        l->method_mask |= (AP_METHOD_BIT << methnum);
         return;
     }
     /*
      * Otherwise, see if the method name is in the array of string names.
      */
-    if (l->method_list->nelts != 0) {
-        methods = (char **)l->method_list->elts;
-        for (i = 0; i < l->method_list->nelts; ++i) {
-            if (strcmp(method, methods[i]) == 0) {
-                return;
-            }
-        }
+    if (ap_array_str_contains(l->method_list, method)) {
+        return;
     }
+
     xmethod = (const char **) apr_array_push(l->method_list);
     *xmethod = method;
 }
@@ -1409,15 +1496,15 @@ AP_DECLARE(void) ap_method_list_remove(ap_method_list_t *l,
      * by a module, use the bitmask.
      */
     methnum = ap_method_number_of(method);
-    l->method_mask |= ~(AP_METHOD_BIT << methnum);
     if (methnum != M_INVALID) {
+        l->method_mask &= ~(AP_METHOD_BIT << methnum);
         return;
     }
     /*
      * Otherwise, see if the method name is in the array of string names.
      */
     if (l->method_list->nelts != 0) {
-        register int i, j, k;
+        int i, j, k;
         methods = (char **)l->method_list->elts;
         for (i = 0; i < l->method_list->nelts; ) {
             if (strcmp(method, methods[i]) == 0) {

@@ -52,6 +52,55 @@
 <seealso><directive module="mod_dbd">DBDriver</directive></seealso>
 <seealso><directive module="mod_dbd">DBDParams</directive></seealso>
 
+<section id="requiredirectives"><title>The Require Directives</title>
+
+    <p>Apache's <directive module="mod_authz_core">Require</directive>
+    directives are used during the authorization phase to ensure that
+    a user is allowed to access a resource.  mod_authz_dbd extends the
+    authorization types with <code>dbd-group</code>, <code>dbd-login</code> and
+    <code>dbd-logout</code>.</p>
+
+    <p>Since v2.4.8, <a href="../expr.html">expressions</a> are supported
+    within the DBD require directives.</p>
+
+<section id="reqgroup"><title>Require dbd-group</title>
+
+    <p>This directive specifies group membership that is required for the
+    user to gain access.</p>
+
+    <highlight language="config">
+      Require dbd-group team
+      AuthzDBDQuery "SELECT group FROM authz WHERE user = %s"
+    </highlight>
+
+</section>
+
+<section id="reqlogin"><title>Require dbd-login</title>
+
+    <p>This directive specifies a query to be run indicating the user
+    has logged in.</p>
+
+    <highlight language="config">
+      Require dbd-login
+      AuthzDBDQuery "UPDATE authn SET login = 'true' WHERE user = %s"
+    </highlight>
+
+</section>
+
+<section id="reqlogout"><title>Require dbd-logout</title>
+
+    <p>This directive specifies a query to be run indicating the user
+    has logged out.</p>
+
+    <highlight language="config">
+      Require dbd-logout
+      AuthzDBDQuery "UPDATE authn SET login = 'false' WHERE user = %s"
+    </highlight>
+
+</section>
+
+</section>
+
 <section id="login">
 <title>Database Login</title>
 <p>
@@ -68,20 +117,20 @@ For usage details, see the configuration example below.</p>
 </section>
 
 <section id="client">
-<title>Client Login</title>
+<title>Client Login integration</title>
 <p>Some administrators may wish to implement client-side session
 management that works in concert with the server-side login/logout
 capabilities offered by this module, for example, by setting or unsetting
-an HTTP cookie or other such token when a user logs in or out.
-To support such integration, <module>mod_authz_dbd</module> exports an
+an HTTP cookie or other such token when a user logs in or out.</p>
+<p>To support such integration, <module>mod_authz_dbd</module> exports an
 optional hook that will be run whenever a user's status is updated in
 the database.  Other session management modules can then use the hook
 to implement functions that start and end client-side sessions.</p>
 </section>
 
 <section id="example">
-<title>Configuration Example</title>
-<example><pre>
+<title>Configuration example</title>
+<highlight language="config">
 # mod_dbd configuration
 DBDriver pgsql
 DBDParams "dbname=apacheauth user=apache pass=xxxxxx"
@@ -91,7 +140,7 @@ DBDKeep 8
 DBDMax  20
 DBDExptime 300
 
-&lt;Directory /usr/www/my.site/team-private/&gt;
+&lt;Directory "/usr/www/my.site/team-private/"&gt;
   # mod_authn_core and mod_auth_basic configuration
   # for mod_authn_dbd
   AuthType Basic
@@ -113,29 +162,37 @@ DBDExptime 300
   # to /team-private/login.html
   ErrorDocument 401 /login-info.html
 
-  &lt;Files login.html&gt;
+  &lt;Files "login.html"&gt;
     # don't require user to already be logged in!
-    AuthDBDUserPWQuery \
-      "SELECT password FROM authn WHERE user = %s"
+    AuthDBDUserPWQuery "SELECT password FROM authn WHERE user = %s"
 
     # dbd-login action executes a statement to log user in
     Require dbd-login
-    AuthzDBDQuery \
-      "UPDATE authn SET login = 'true' WHERE user = %s"
+    AuthzDBDQuery "UPDATE authn SET login = 'true' WHERE user = %s"
 
     # return user to referring page (if any) after
     # successful login
     AuthzDBDLoginToReferer On
   &lt;/Files&gt;
 
-  &lt;Files logout.html&gt;
+  &lt;Files "logout.html"&gt;
     # dbd-logout action executes a statement to log user out
     Require dbd-logout
-    AuthzDBDQuery \
-      "UPDATE authn SET login = 'false' WHERE user = %s"
+    AuthzDBDQuery "UPDATE authn SET login = 'false' WHERE user = %s"
   &lt;/Files&gt;
 &lt;/Directory&gt;
-</pre></example>
+</highlight>
+</section>
+
+<section id="security">
+<title>Preventing SQL injections</title>
+  <p>Whether you need to care about SQL security depends on what DBD driver
+  and backend you use.  With most drivers you don't have to do anything :
+  the statement is prepared by the database at startup, and user input is
+  used only as data.  But you may need to untaint your input.  At the time
+  of writing, the only driver that requires you to take care is FreeTDS.</p>
+  <p>Please read <module>mod_dbd</module> documentation for more information
+  about security on this scope.</p>
 </section>
 
 <directivesynopsis>
@@ -157,22 +214,20 @@ DBDExptime 300
     The first column value of each row returned by the query statement
     should be a string containing a group name.  Zero, one, or more rows
     may be returned.
-    <example><title>Example</title><pre>
+    <highlight language="config">
 Require dbd-group
-AuthzDBDQuery \
-  "SELECT group FROM groups WHERE user = %s"
-</pre></example>
+AuthzDBDQuery "SELECT group FROM groups WHERE user = %s"
+</highlight>
     </li>
     <li>When used with a <code>Require dbd-login</code> or
     <code>Require dbd-logout</code> directive, it will never deny access,
     but will instead execute a SQL statement designed to log the user
     in or out.  The user must already be authenticated with
     <module>mod_authn_dbd</module>.
-    <example><title>Example</title><pre>
+    <highlight language="config">
 Require dbd-login
-AuthzDBDQuery \
-  "UPDATE authn SET login = 'true' WHERE user = %s"
-</pre></example>
+AuthzDBDQuery "UPDATE authn SET login = 'true' WHERE user = %s"
+</highlight>
     </li>
     </ul>
     <p>In all cases, the user's ID will be passed as a single string
@@ -193,10 +248,9 @@ AuthzDBDQuery \
     specific to the user.  The user's ID will be passed as a single string
     parameter when the SQL query is executed.  It may be referenced within
     the query statement using a <code>%s</code> format specifier.</p>
-    <example><title>Example</title><pre>
-AuthzDBDRedirectQuery \
-  "SELECT userpage FROM userpages WHERE user = %s"
-</pre></example>
+    <highlight language="config">
+AuthzDBDRedirectQuery "SELECT userpage FROM userpages WHERE user = %s"
+</highlight>
     <p>The first column value of the first row returned by the query
     statement should be a string containing a URL to which to redirect
     the client.  Subsequent rows will be ignored.  If no rows are returned,

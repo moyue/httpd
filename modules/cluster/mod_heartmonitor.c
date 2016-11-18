@@ -155,7 +155,7 @@ static void qs_to_table(const char *input, apr_table_t *parms,
         ap_unescape_url(value);
         apr_table_set(parms, key, value);
         /*
-           ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+           ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(03182)
            "Found query arg: %s = %s", key, value);
          */
         key = apr_strtok(NULL, "&", &strtok_state);
@@ -272,6 +272,7 @@ static apr_status_t hm_file_update_stat(hm_ctx_t *ctx, hm_server_t *s, apr_pool_
             char buf[4096];
             const char *ip;
             apr_size_t bsize = sizeof(buf);
+
             apr_brigade_cleanup(tmpbb);
             if (APR_BRIGADE_EMPTY(bb)) {
                 break;
@@ -292,46 +293,56 @@ static apr_status_t hm_file_update_stat(hm_ctx_t *ctx, hm_server_t *s, apr_pool_
             buf[bsize - 1] = 0;
             t = strchr(buf, ' ');
             if (t) {
-                ip = apr_pstrndup(pool, buf, t - buf);
-            } else {
+                ip = apr_pstrmemdup(pool, buf, t - buf);
+            }
+            else {
                 ip = NULL;
             }
+
             if (!ip || buf[0] == '#') {
                 /* copy things we can't process */
                 apr_file_printf(fp, "%s\n", buf);
-            } else if (strcmp(ip, s->ip) !=0 ) {
+            }
+            else if (strcmp(ip, s->ip) != 0 ) {
                 hm_server_t node;
                 apr_time_t seen;
+                const char *val;
+
                 /* Update seen time according to the last file modification */
                 apr_table_clear(hbt);
                 qs_to_table(apr_pstrdup(pool, t), hbt, pool);
-                if (apr_table_get(hbt, "busy")) {
-                    node.busy = atoi(apr_table_get(hbt, "busy"));
-                } else {
+                if ((val = apr_table_get(hbt, "busy"))) {
+                    node.busy = atoi(val);
+                }
+                else {
                     node.busy = 0;
                 }
 
-                if (apr_table_get(hbt, "ready")) {
-                    node.ready = atoi(apr_table_get(hbt, "ready"));
-                } else {
+                if ((val = apr_table_get(hbt, "ready"))) {
+                    node.ready = atoi(val);
+                }
+                else {
                     node.ready = 0;
                 }
 
-                if (apr_table_get(hbt, "lastseen")) {
-                    node.seen = atoi(apr_table_get(hbt, "lastseen"));
-                } else {
+                if ((val = apr_table_get(hbt, "lastseen"))) {
+                    node.seen = atoi(val);
+                }
+                else {
                     node.seen = SEEN_TIMEOUT;
                 }
                 seen = fage + node.seen;
 
-                if (apr_table_get(hbt, "port")) {
-                    node.port = atoi(apr_table_get(hbt, "port"));
-                } else {
+                if ((val = apr_table_get(hbt, "port"))) {
+                    node.port = atoi(val);
+                }
+                else {
                     node.port = 80;
                 }
                 apr_file_printf(fp, "%s &ready=%u&busy=%u&lastseen=%u&port=%u\n",
                                 ip, node.ready, node.busy, (unsigned int) seen, node.port);
-            } else {
+            }
+            else {
                 apr_time_t seen;
                 seen = apr_time_sec(now - s->seen);
                 apr_file_printf(fp, "%s &ready=%u&busy=%u&lastseen=%u&port=%u\n",
@@ -753,7 +764,7 @@ static int hm_handler(request_rec *r)
     input_brigade = apr_brigade_create(r->connection->pool, r->connection->bucket_alloc);
     status = ap_get_brigade(r->input_filters, input_brigade, AP_MODE_READBYTES, APR_BLOCK_READ, MAX_MSG_LEN);
     if (status != APR_SUCCESS) {
-        return HTTP_INTERNAL_SERVER_ERROR;
+        return ap_map_http_request_error(status, HTTP_BAD_REQUEST);
     }
     apr_brigade_flatten(input_brigade, buf, &len);
 
@@ -792,7 +803,7 @@ static void *hm_create_config(apr_pool_t *p, server_rec *s)
     hm_ctx_t *ctx = (hm_ctx_t *) apr_palloc(p, sizeof(hm_ctx_t));
 
     ctx->active = 0;
-    ctx->storage_path = ap_server_root_relative(p, "logs/hb.dat");
+    ctx->storage_path = ap_runtime_dir_relative(p, DEFAULT_HEARTBEAT_STORAGE);
     /* TODO: Add directive for tuning the update interval
      */
     ctx->interval = apr_time_from_sec(HM_UPDATE_SEC);
@@ -816,7 +827,7 @@ static const char *cmd_hm_storage(cmd_parms *cmd,
         return err;
     }
 
-    ctx->storage_path = ap_server_root_relative(p, path);
+    ctx->storage_path = ap_runtime_dir_relative(p, path);
 
     return NULL;
 }

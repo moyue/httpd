@@ -48,7 +48,6 @@
 #include "mpm_common.h"
 #include "scoreboard.h"
 #include "mod_core.h"
-#include "mod_proxy.h"
 #include "ap_listen.h"
 
 #include "mod_so.h" /* for ap_find_loaded_module_symbol */
@@ -79,14 +78,12 @@ do { \
 #define APLOG_MODULE_INDEX AP_CORE_MODULE_INDEX
 
 struct core_output_filter_ctx {
-    apr_bucket_brigade *buffered_bb;
     apr_bucket_brigade *tmp_flush_bb;
-    apr_pool_t *deferred_write_pool;
+    apr_bucket_brigade *empty_bb;
     apr_size_t bytes_written;
 };
 
 struct core_filter_ctx {
-    apr_bucket_brigade *b;
     apr_bucket_brigade *tmpbb;
 };
 
@@ -118,19 +115,19 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
     if (!ctx)
     {
         net->in_ctx = ctx = apr_palloc(f->c->pool, sizeof(*ctx));
-        ctx->b = apr_brigade_create(f->c->pool, f->c->bucket_alloc);
+        ap_filter_prepare_brigade(f, NULL);
         ctx->tmpbb = apr_brigade_create(f->c->pool, f->c->bucket_alloc);
         /* seed the brigade with the client socket. */
-        rv = ap_run_insert_network_bucket(f->c, ctx->b, net->client_socket);
+        rv = ap_run_insert_network_bucket(f->c, f->bb, net->client_socket);
         if (rv != APR_SUCCESS)
             return rv;
     }
-    else if (APR_BRIGADE_EMPTY(ctx->b)) {
+    else if (APR_BRIGADE_EMPTY(f->bb)) {
         return APR_EOF;
     }
 
     /* ### This is bad. */
-    BRIGADE_NORMALIZE(ctx->b);
+    BRIGADE_NORMALIZE(f->bb);
 
     /* check for empty brigade again *AFTER* BRIGADE_NORMALIZE()
      * If we have lost our socket bucket (see above), we are EOF.
@@ -138,13 +135,13 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
      * Ideally, this should be returning SUCCESS with EOS bucket, but
      * some higher-up APIs (spec. read_request_line via ap_rgetline)
      * want an error code. */
-    if (APR_BRIGADE_EMPTY(ctx->b)) {
+    if (APR_BRIGADE_EMPTY(f->bb)) {
         return APR_EOF;
     }
 
     if (mode == AP_MODE_GETLINE) {
         /* we are reading a single LF line, e.g. the HTTP headers */
-        rv = apr_brigade_split_line(b, ctx->b, block, HUGE_STRING_LEN);
+        rv = apr_brigade_split_line(b, f->bb, block, HUGE_STRING_LEN);
         /* We should treat EAGAIN here the same as we do for EOF (brigade is
          * empty).  We do this by returning whatever we have read.  This may
          * or may not be bogus, but is consistent (for now) with EOF logic.
@@ -172,10 +169,10 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
          * mean that there is another request, just a blank line.
          */
         while (1) {
-            if (APR_BRIGADE_EMPTY(ctx->b))
+            if (APR_BRIGADE_EMPTY(f->bb))
                 return APR_EOF;
 
-            e = APR_BRIGADE_FIRST(ctx->b);
+            e = APR_BRIGADE_FIRST(f->bb);
 
             rv = apr_bucket_read(e, &str, &len, APR_NONBLOCK_READ);
 
@@ -214,7 +211,7 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
         apr_bucket *e;
 
         /* Tack on any buckets that were set aside. */
-        APR_BRIGADE_CONCAT(b, ctx->b);
+        APR_BRIGADE_CONCAT(b, f->bb);
 
         /* Since we've just added all potential buckets (which will most
          * likely simply be the socket bucket) we know this is the end,
@@ -232,7 +229,7 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
 
         AP_DEBUG_ASSERT(readbytes > 0);
 
-        e = APR_BRIGADE_FIRST(ctx->b);
+        e = APR_BRIGADE_FIRST(f->bb);
         rv = apr_bucket_read(e, &str, &len, block);
 
         if (APR_STATUS_IS_EAGAIN(rv) && block == APR_NONBLOCK_READ) {
@@ -269,7 +266,7 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
             /* We already registered the data in e in len */
             e = APR_BUCKET_NEXT(e);
             while ((len < readbytes) && (rv == APR_SUCCESS)
-                   && (e != APR_BRIGADE_SENTINEL(ctx->b))) {
+                   && (e != APR_BRIGADE_SENTINEL(f->bb))) {
                 /* Check for the availability of buckets with known length */
                 if (e->length != -1) {
                     len += e->length;
@@ -297,22 +294,22 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
             readbytes = len;
         }
 
-        rv = apr_brigade_partition(ctx->b, readbytes, &e);
+        rv = apr_brigade_partition(f->bb, readbytes, &e);
         if (rv != APR_SUCCESS) {
             return rv;
         }
 
         /* Must do move before CONCAT */
-        ctx->tmpbb = apr_brigade_split_ex(ctx->b, e, ctx->tmpbb);
+        ctx->tmpbb = apr_brigade_split_ex(f->bb, e, ctx->tmpbb);
 
         if (mode == AP_MODE_READBYTES) {
-            APR_BRIGADE_CONCAT(b, ctx->b);
+            APR_BRIGADE_CONCAT(b, f->bb);
         }
         else if (mode == AP_MODE_SPECULATIVE) {
             apr_bucket *copy_bucket;
 
-            for (e = APR_BRIGADE_FIRST(ctx->b);
-                 e != APR_BRIGADE_SENTINEL(ctx->b);
+            for (e = APR_BRIGADE_FIRST(f->bb);
+                 e != APR_BRIGADE_SENTINEL(f->bb);
                  e = APR_BUCKET_NEXT(e))
             {
                 rv = apr_bucket_copy(e, &copy_bucket);
@@ -324,15 +321,10 @@ apr_status_t ap_core_input_filter(ap_filter_t *f, apr_bucket_brigade *b,
         }
 
         /* Take what was originally there and place it back on ctx->b */
-        APR_BRIGADE_CONCAT(ctx->b, ctx->tmpbb);
+        APR_BRIGADE_CONCAT(f->bb, ctx->tmpbb);
     }
     return APR_SUCCESS;
 }
-
-static void setaside_remaining_output(ap_filter_t *f,
-                                      core_output_filter_ctx_t *ctx,
-                                      apr_bucket_brigade *bb,
-                                      conn_rec *c);
 
 static apr_status_t send_brigade_nonblocking(apr_socket_t *s,
                                              apr_bucket_brigade *bb,
@@ -359,75 +351,51 @@ static apr_status_t sendfile_nonblocking(apr_socket_t *s,
                                          conn_rec *c);
 #endif
 
-/* XXX: Should these be configurable parameters? */
-#define THRESHOLD_MIN_WRITE 4096
-#define THRESHOLD_MAX_BUFFER 65536
-#define MAX_REQUESTS_IN_PIPELINE 5
-
 /* Optional function coming from mod_logio, used for logging of output
  * traffic
  */
 extern APR_OPTIONAL_FN_TYPE(ap_logio_add_bytes_out) *ap__logio_add_bytes_out;
 
-apr_status_t ap_core_output_filter(ap_filter_t *f, apr_bucket_brigade *new_bb)
+apr_status_t ap_core_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
 {
     conn_rec *c = f->c;
     core_net_rec *net = f->ctx;
     core_output_filter_ctx_t *ctx = net->out_ctx;
-    apr_bucket_brigade *bb = NULL;
-    apr_bucket *bucket, *next, *flush_upto = NULL;
-    apr_size_t bytes_in_brigade, non_file_bytes_in_brigade;
-    int eor_buckets_in_brigade, morphing_bucket_in_brigade;
+    apr_bucket *flush_upto = NULL;
     apr_status_t rv;
+    int loglevel = ap_get_conn_module_loglevel(c, APLOG_MODULE_INDEX);
 
     /* Fail quickly if the connection has already been aborted. */
     if (c->aborted) {
-        if (new_bb != NULL) {
-            apr_brigade_cleanup(new_bb);
-        }
+        apr_brigade_cleanup(bb);
         return APR_ECONNABORTED;
     }
 
     if (ctx == NULL) {
         ctx = apr_pcalloc(c->pool, sizeof(*ctx));
         net->out_ctx = (core_output_filter_ctx_t *)ctx;
-        rv = apr_socket_opt_set(net->client_socket, APR_SO_NONBLOCK, 1);
-        if (rv != APR_SUCCESS) {
-            return rv;
-        }
         /*
          * Need to create tmp brigade with correct lifetime. Passing
          * NULL to apr_brigade_split_ex would result in a brigade
          * allocated from bb->pool which might be wrong.
          */
         ctx->tmp_flush_bb = apr_brigade_create(c->pool, c->bucket_alloc);
-        /* same for buffered_bb and ap_save_brigade */
-        ctx->buffered_bb = apr_brigade_create(c->pool, c->bucket_alloc);
     }
 
-    if (new_bb != NULL)
-        bb = new_bb;
-
-    if ((ctx->buffered_bb != NULL) &&
-        !APR_BRIGADE_EMPTY(ctx->buffered_bb)) {
-        if (new_bb != NULL) {
-            APR_BRIGADE_PREPEND(bb, ctx->buffered_bb);
+    /* remain compatible with legacy MPMs that passed NULL to this filter */
+    if (bb == NULL) {
+        if (ctx->empty_bb == NULL) {
+            ctx->empty_bb = apr_brigade_create(c->pool, c->bucket_alloc);
         }
-        else {
-            bb = ctx->buffered_bb;
-        }
-        c->data_in_output_filters = 0;
-    }
-    else if (new_bb == NULL) {
-        return APR_SUCCESS;
+        bb = ctx->empty_bb;
     }
 
     /* Scan through the brigade and decide whether to attempt a write,
      * and how much to write, based on the following rules:
      *
-     *  1) The new_bb is null: Do a nonblocking write of as much as
+     *  1) The bb is empty: Do a nonblocking write of as much as
      *     possible: do a nonblocking write of as much data as possible,
-     *     then save the rest in ctx->buffered_bb.  (If new_bb == NULL,
+     *     then save the rest in ctx->buffered_bb.  (If bb is empty,
      *     it probably means that the MPM is doing asynchronous write
      *     completion and has just determined that this connection
      *     is writable.)
@@ -463,142 +431,61 @@ apr_status_t ap_core_output_filter(ap_filter_t *f, apr_bucket_brigade *new_bb)
      *  3) Actually do the blocking write up to the last bucket determined
      *     by rules 2a-d. The point of doing only one flush is to make as
      *     few calls to writev() as possible.
-     *
-     *  4) If the brigade contains at least THRESHOLD_MIN_WRITE
-     *     bytes: Do a nonblocking write of as much data as possible,
-     *     then save the rest in ctx->buffered_bb.
      */
 
-    if (new_bb == NULL) {
-        rv = send_brigade_nonblocking(net->client_socket, bb,
-                                      &(ctx->bytes_written), c);
-        if (APR_STATUS_IS_EAGAIN(rv)) {
-            rv = APR_SUCCESS;
-        }
-        else if (rv != APR_SUCCESS) {
-            /* The client has aborted the connection */
-            c->aborted = 1;
-        }
-        setaside_remaining_output(f, ctx, bb, c);
-        return rv;
-    }
+    ap_filter_reinstate_brigade(f, bb, &flush_upto);
 
-    bytes_in_brigade = 0;
-    non_file_bytes_in_brigade = 0;
-    eor_buckets_in_brigade = 0;
-    morphing_bucket_in_brigade = 0;
-
-    for (bucket = APR_BRIGADE_FIRST(bb); bucket != APR_BRIGADE_SENTINEL(bb);
-         bucket = next) {
-        next = APR_BUCKET_NEXT(bucket);
-
-        if (!APR_BUCKET_IS_METADATA(bucket)) {
-            if (bucket->length == (apr_size_t)-1) {
-                /*
-                 * A setaside of morphing buckets would read everything into
-                 * memory. Instead, we will flush everything up to and
-                 * including this bucket.
-                 */
-                morphing_bucket_in_brigade = 1;
-            }
-            else {
-                bytes_in_brigade += bucket->length;
-                if (!APR_BUCKET_IS_FILE(bucket))
-                    non_file_bytes_in_brigade += bucket->length;
-            }
-        }
-        else if (AP_BUCKET_IS_EOR(bucket)) {
-            eor_buckets_in_brigade++;
-        }
-
-        if (APR_BUCKET_IS_FLUSH(bucket)
-            || non_file_bytes_in_brigade >= THRESHOLD_MAX_BUFFER
-            || morphing_bucket_in_brigade
-            || eor_buckets_in_brigade > MAX_REQUESTS_IN_PIPELINE) {
-            /* this segment of the brigade MUST be sent before returning. */
-
-            if (APLOGctrace6(c)) {
-                char *reason = APR_BUCKET_IS_FLUSH(bucket) ?
-                               "FLUSH bucket" :
-                               (non_file_bytes_in_brigade >= THRESHOLD_MAX_BUFFER) ?
-                               "THRESHOLD_MAX_BUFFER" :
-                               morphing_bucket_in_brigade ? "morphing bucket" :
-                               "MAX_REQUESTS_IN_PIPELINE";
-                ap_log_cerror(APLOG_MARK, APLOG_TRACE6, 0, c,
-                              "core_output_filter: flushing because of %s",
-                              reason);
-            }
-            /*
-             * Defer the actual blocking write to avoid doing many writes.
-             */
-            flush_upto = next;
-
-            bytes_in_brigade = 0;
-            non_file_bytes_in_brigade = 0;
-            eor_buckets_in_brigade = 0;
-            morphing_bucket_in_brigade = 0;
-        }
+    if (APR_BRIGADE_EMPTY(bb)) {
+        return APR_SUCCESS;
     }
 
     if (flush_upto != NULL) {
         ctx->tmp_flush_bb = apr_brigade_split_ex(bb, flush_upto,
                                                  ctx->tmp_flush_bb);
+        if (loglevel >= APLOG_TRACE8) {
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE8, 0, c,
+                              "flushing now");
+        }
         rv = send_brigade_blocking(net->client_socket, bb,
                                    &(ctx->bytes_written), c);
         if (rv != APR_SUCCESS) {
             /* The client has aborted the connection */
+            ap_log_cerror(APLOG_MARK, APLOG_TRACE1, rv, c,
+                          "core_output_filter: writing data to the network");
+            apr_brigade_cleanup(bb);
             c->aborted = 1;
             return rv;
+        }
+        if (loglevel >= APLOG_TRACE8) {
+                ap_log_cerror(APLOG_MARK, APLOG_TRACE8, 0, c,
+                              "total bytes written: %" APR_SIZE_T_FMT,
+                              ctx->bytes_written);
         }
         APR_BRIGADE_CONCAT(bb, ctx->tmp_flush_bb);
     }
 
-    if (bytes_in_brigade >= THRESHOLD_MIN_WRITE) {
-        rv = send_brigade_nonblocking(net->client_socket, bb,
-                                      &(ctx->bytes_written), c);
-        if ((rv != APR_SUCCESS) && (!APR_STATUS_IS_EAGAIN(rv))) {
-            /* The client has aborted the connection */
-            c->aborted = 1;
-            return rv;
-        }
+    rv = send_brigade_nonblocking(net->client_socket, bb, &(ctx->bytes_written),
+            c);
+    if ((rv != APR_SUCCESS) && (!APR_STATUS_IS_EAGAIN(rv))) {
+        /* The client has aborted the connection */
+        ap_log_cerror(
+                APLOG_MARK, APLOG_TRACE1, rv, c,
+                "core_output_filter: writing data to the network");
+        apr_brigade_cleanup(bb);
+        c->aborted = 1;
+        return rv;
+    }
+    if (loglevel >= APLOG_TRACE8) {
+        ap_log_cerror(
+                APLOG_MARK, APLOG_TRACE8, 0, c,
+                "tried nonblocking write, total bytes "
+                "written: %" APR_SIZE_T_FMT, ctx->bytes_written);
     }
 
-    setaside_remaining_output(f, ctx, bb, c);
-    return APR_SUCCESS;
-}
-
-/*
- * This function assumes that either ctx->buffered_bb == NULL, or
- * ctx->buffered_bb is empty, or ctx->buffered_bb == bb
- */
-static void setaside_remaining_output(ap_filter_t *f,
-                                      core_output_filter_ctx_t *ctx,
-                                      apr_bucket_brigade *bb,
-                                      conn_rec *c)
-{
-    if (bb == NULL) {
-        return;
-    }
     remove_empty_buckets(bb);
-    if (!APR_BRIGADE_EMPTY(bb)) {
-        c->data_in_output_filters = 1;
-        if (bb != ctx->buffered_bb) {
-            if (!ctx->deferred_write_pool) {
-                apr_pool_create(&ctx->deferred_write_pool, c->pool);
-                apr_pool_tag(ctx->deferred_write_pool, "deferred_write");
-            }
-            ap_save_brigade(f, &(ctx->buffered_bb), &bb,
-                            ctx->deferred_write_pool);
-            apr_brigade_cleanup(bb);
-        }
-    }
-    else if (ctx->deferred_write_pool) {
-        /*
-         * There are no more requests in the pipeline. We can just clear the
-         * pool.
-         */
-        apr_pool_clear(ctx->deferred_write_pool);
-    }
+    ap_filter_setaside_brigade(f, bb);
+
+    return APR_SUCCESS;
 }
 
 #ifndef APR_MAX_IOVEC_SIZE
@@ -642,7 +529,6 @@ static apr_status_t send_brigade_nonblocking(apr_socket_t *s,
                 if (nvec > 0) {
                     (void)apr_socket_opt_set(s, APR_TCP_NOPUSH, 1);
                     rv = writev_nonblocking(s, vec, nvec, bb, bytes_written, c);
-                    nvec = 0;
                     if (rv != APR_SUCCESS) {
                         (void)apr_socket_opt_set(s, APR_TCP_NOPUSH, 0);
                         return rv;
@@ -651,6 +537,7 @@ static apr_status_t send_brigade_nonblocking(apr_socket_t *s,
                 rv = sendfile_nonblocking(s, bucket, bytes_written, c);
                 if (nvec > 0) {
                     (void)apr_socket_opt_set(s, APR_TCP_NOPUSH, 0);
+                    nvec = 0;
                 }
                 if (rv != APR_SUCCESS) {
                     return rv;
@@ -716,8 +603,7 @@ static void remove_empty_buckets(apr_bucket_brigade *bb)
     apr_bucket *bucket;
     while (((bucket = APR_BRIGADE_FIRST(bb)) != APR_BRIGADE_SENTINEL(bb)) &&
            (APR_BUCKET_IS_METADATA(bucket) || (bucket->length == 0))) {
-        APR_BUCKET_REMOVE(bucket);
-        apr_bucket_destroy(bucket);
+        apr_bucket_delete(bucket);
     }
 }
 
@@ -743,7 +629,9 @@ static apr_status_t send_brigade_blocking(apr_socket_t *s,
                 pollset.reqevents = APR_POLLOUT;
                 pollset.desc.s = s;
                 apr_socket_timeout_get(s, &timeout);
-                rv = apr_poll(&pollset, 1, &nsds, timeout);
+                do {
+                    rv = apr_poll(&pollset, 1, &nsds, timeout);
+                } while (APR_STATUS_IS_EINTR(rv));
                 if (rv != APR_SUCCESS) {
                     break;
                 }
@@ -788,19 +676,16 @@ static apr_status_t writev_nonblocking(apr_socket_t *s,
             for (i = offset; i < nvec; ) {
                 apr_bucket *bucket = APR_BRIGADE_FIRST(bb);
                 if (APR_BUCKET_IS_METADATA(bucket)) {
-                    APR_BUCKET_REMOVE(bucket);
-                    apr_bucket_destroy(bucket);
+                    apr_bucket_delete(bucket);
                 }
                 else if (n >= vec[i].iov_len) {
-                    APR_BUCKET_REMOVE(bucket);
-                    apr_bucket_destroy(bucket);
+                    apr_bucket_delete(bucket);
                     offset++;
                     n -= vec[i++].iov_len;
                 }
                 else {
                     apr_bucket_split(bucket, n);
-                    APR_BUCKET_REMOVE(bucket);
-                    apr_bucket_destroy(bucket);
+                    apr_bucket_delete(bucket);
                     vec[i].iov_len -= n;
                     vec[i].iov_base = (char *) vec[i].iov_base + n;
                     break;
@@ -879,12 +764,10 @@ static apr_status_t sendfile_nonblocking(apr_socket_t *s,
     *cumulative_bytes_written += bytes_written;
     if ((bytes_written < file_length) && (bytes_written > 0)) {
         apr_bucket_split(bucket, bytes_written);
-        APR_BUCKET_REMOVE(bucket);
-        apr_bucket_destroy(bucket);
+        apr_bucket_delete(bucket);
     }
     else if (bytes_written == file_length) {
-        APR_BUCKET_REMOVE(bucket);
-        apr_bucket_destroy(bucket);
+        apr_bucket_delete(bucket);
     }
     return rv;
 }

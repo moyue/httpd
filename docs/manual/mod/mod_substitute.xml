@@ -27,7 +27,6 @@
 <status>Extension</status>
 <sourcefile>mod_substitute.c</sourcefile>
 <identifier>substitute_module</identifier>
-<compatibility>Available in Apache HTTP Server 2.2.7 and later</compatibility>
 
 <summary>
     <p><module>mod_substitute</module> provides a mechanism to perform
@@ -58,11 +57,11 @@
         Using the <code>n</code> flag forces the pattern to be treated
         as a fixed string.</dd>
         <dt><code>f</code></dt>
-        <dd>The <code>f</code> flag causes mod_substitute to flatten the
+        <dd>The <code>f</code> flag causes <code>mod_substitute</code> to flatten the
         result of a substitution allowing for later substitutions to
         take place on the boundary of this one. This is the default.</dd>
         <dt><code>q</code></dt>
-        <dd>The <code>q</code> flag causes mod_substitute to not
+        <dd>The <code>q</code> flag causes <code>mod_substitute</code> to not
         flatten the buckets after each substitution. This can
         result in much faster response and a decrease in memory
         utilization, but should only be used if there is no possibility
@@ -71,36 +70,36 @@
     </dl>
 
     <example><title>Example</title>
-        &lt;Location /&gt;
-        <indent>
-            AddOutputFilterByType SUBSTITUTE text/html<br />
-            Substitute s/foo/bar/ni<br />
-        </indent>
-        &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/"&gt;
+    AddOutputFilterByType SUBSTITUTE text/html
+    Substitute "s/foo/bar/ni"
+&lt;/Location&gt;
+        </highlight>
     </example>
 
     <p>If either the pattern or the substitution contain a slash
     character then an alternative delimiter should be used:</p>
 
     <example><title>Example of using an alternate delimiter</title>
-        &lt;Location /&gt;
-        <indent>
-            AddOutputFilterByType SUBSTITUTE text/html<br />
-            Substitute "s|&lt;BR */?&gt;|&lt;br /&gt;|i"
-        </indent>
-        &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/"&gt;
+    AddOutputFilterByType SUBSTITUTE text/html
+    Substitute "s|&lt;BR */?&gt;|&lt;br /&gt;|i"
+&lt;/Location&gt;
+        </highlight>
     </example>
 
     <p>Backreferences can be used in the comparison and in the substitution,
     when regular expressions are used, as illustrated in the following example: </p>
     <example><title>Example of using backreferences and captures</title>
-        &lt;Location /&gt;
-        <indent>
-            AddOutputFilterByType SUBSTITUTE text/html<br />
-            # "foo=k,bar=k" -> "foo/bar=k" <br />
-            Substitute "s|foo=(\w+),bar=\1|foo/bar=$1"
-        </indent>
-        &lt;/Location&gt;
+    <highlight language="config">
+&lt;Location "/"&gt;
+    AddOutputFilterByType SUBSTITUTE text/html
+    # "foo=k,bar=k" -> "foo/bar=k"
+    Substitute "s|foo=(\w+),bar=\1|foo/bar=$1"
+&lt;/Location&gt;
+    </highlight>
     </example>
 
     <p>A common use scenario for <code>mod_substitute</code> is the
@@ -109,22 +108,81 @@
     to the back-end server. These URLs don't work for the end-user,
     since the back-end server is unreachable.</p>
 
-    <p>In this case, <code>mod_substutite</code> can be used to rewrite
+    <p>In this case, <code>mod_substitute</code> can be used to rewrite
     those URLs into something that will work from the front end:</p>
 
     <example><title>Rewriting URLs embedded in proxied content</title>
-    ProxyPass /blog/ http://internal.blog.example.com<br />
-    ProxyPassReverse /blog/ http://internal.blog.example.com/<br />
-    <br />
-    Substitute "s|http://internal.blog.example.com/|http://www.example.com/blog/|i"
+    <highlight language="config">
+ProxyPass        "/blog/" "http://internal.blog.example.com"
+ProxyPassReverse "/blog/" "http://internal.blog.example.com/"
+
+Substitute "s|http://internal.blog.example.com/|http://www.example.com/blog/|i"
+    </highlight>
     </example>
 
     <p><directive module="mod_proxy">ProxyPassReverse</directive>
     modifies any <code>Location</code> (redirect) headers that are sent
     by the back-end server, and, in this example,
-    <code>Substitute</code> takes care of the rest of the problem by
+    <directive>Substitute</directive> takes care of the rest of the problem by
     fixing up the HTML response as well.</p>
 
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>SubstituteMaxLineLength</name>
+<description>Set the maximum line size</description>
+<syntax>SubstituteMaxLineLength <var>bytes</var>(b|B|k|K|m|M|g|G)</syntax>
+<default>SubstituteMaxLineLength 1m</default>
+<contextlist><context>directory</context>
+<context>.htaccess</context></contextlist>
+<override>FileInfo</override>
+<compatibility>Available in httpd 2.4.11 and later</compatibility>
+
+<usage>
+    <p>The maximum line size handled by <module>mod_substitute</module>
+    is limited to restrict memory use. The limit can be configured
+    using <directive>SubstituteMaxLineLength</directive>.
+    The value can be given as the number of bytes and can be suffixed
+    with a single letter <code>b</code>, <code>B</code>, <code>k</code>,
+    <code>K</code>, <code>m</code>, <code>M</code>, <code>g</code>,
+    <code>G</code> to provide the size in bytes, kilobytes, megabytes
+    or gigabytes respectively.</p>
+
+    <example><title>Example</title>
+    <highlight language="config">
+&lt;Location "/"&gt;
+    AddOutputFilterByType SUBSTITUTE text/html
+    SubstituteMaxLineLength 10m
+    Substitute "s/foo/bar/ni"
+&lt;/Location&gt;
+        </highlight>
+    </example>
+
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
+<name>SubstituteInheritBefore</name>
+<description>Change the merge order of inherited patterns</description>
+<syntax>SubstituteInheritBefore on|off</syntax>
+<default>SubstituteInheritBefore on</default>
+<contextlist><context>directory</context>
+<context>.htaccess</context></contextlist>
+<override>FileInfo</override>
+<compatibility>Available in httpd 2.4.17 and later</compatibility>
+
+<usage>
+    <p>Whether to apply the inherited <directive module="mod_substitute">Substitute</directive>
+    patterns first (<code>on</code>), or after the ones of the current
+    context (<code>off</code>).
+    The latter was the default in versions 2.4 and earlier, but changed
+    starting with 2.5, hence <directive>SubstituteInheritBefore</directive>
+    set to <code>off</code> allows to restore the legacy behaviour.
+    <directive>SubstituteInheritBefore</directive> is itself inherited,
+    hence contexts that inherit it (those that don't specify their own
+    <directive>SubstituteInheritBefore</directive> value) will apply the
+    closest defined merge order.</p>
 </usage>
 </directivesynopsis>
 

@@ -18,7 +18,7 @@
  *
  *          AuthGroupFile standard /path/to/file
  *
- * and the presense of a
+ * and the presence of a
  *
  *         require group <list-of-groups>
  *
@@ -55,12 +55,11 @@
 #include "util_varbuf.h"
 
 #include "mod_auth.h"
+#include "mod_authz_owner.h"
 
 typedef struct {
     char *groupfile;
 } authz_groupfile_config_rec;
-
-APR_DECLARE_OPTIONAL_FN(char*, authz_owner_get_file_group, (request_rec *r));
 
 static void *create_authz_groupfile_dir_config(apr_pool_t *p, char *d)
 {
@@ -70,22 +69,12 @@ static void *create_authz_groupfile_dir_config(apr_pool_t *p, char *d)
     return conf;
 }
 
-static const char *set_authz_groupfile_slot(cmd_parms *cmd, void *offset, const char *f,
-                                 const char *t)
-{
-    if (t && strcmp(t, "standard")) {
-        return apr_pstrcat(cmd->pool, "Invalid auth file type: ", t, NULL);
-    }
-
-    return ap_set_file_slot(cmd, offset, f);
-}
-
 static const command_rec authz_groupfile_cmds[] =
 {
-    AP_INIT_TAKE12("AuthGroupFile", set_authz_groupfile_slot,
-                   (void *)APR_OFFSETOF(authz_groupfile_config_rec, groupfile),
-                   OR_AUTHCFG,
-                   "text file containing group names and member user IDs"),
+    AP_INIT_TAKE1("AuthGroupFile", ap_set_file_slot,
+                  (void *)APR_OFFSETOF(authz_groupfile_config_rec, groupfile),
+                  OR_AUTHCFG,
+                  "text file containing group names and member user IDs"),
     {NULL}
 };
 
@@ -149,6 +138,11 @@ static authz_status group_check_authorization(request_rec *r,
     authz_groupfile_config_rec *conf = ap_get_module_config(r->per_dir_config,
             &authz_groupfile_module);
     char *user = r->user;
+
+    const char *err = NULL;
+    const ap_expr_info_t *expr = parsed_require_args;
+    const char *require;
+
     const char *t, *w;
     apr_table_t *grpstatus = NULL;
     apr_status_t status;
@@ -176,7 +170,7 @@ static authz_status group_check_authorization(request_rec *r,
         return AUTHZ_DENIED;
     }
 
-    if (apr_table_elts(grpstatus)->nelts == 0) {
+    if (apr_is_empty_table(grpstatus)) {
         /* no groups available, so exit immediately */
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01666)
                       "Authorization of user %s to access %s failed, reason: "
@@ -185,14 +179,22 @@ static authz_status group_check_authorization(request_rec *r,
         return AUTHZ_DENIED;
     }
 
-    t = require_args;
+    require = ap_expr_str_exec(r, expr, &err);
+    if (err) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02592)
+                      "authz_groupfile authorize: require group: Can't "
+                      "evaluate require expression: %s", err);
+        return AUTHZ_DENIED;
+    }
+
+    t = require;
     while ((w = ap_getword_conf(r->pool, &t)) && w[0]) {
         if (apr_table_get(grpstatus, w)) {
             return AUTHZ_GRANTED;
         }
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01667)
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(01667)
                     "Authorization of user %s to access %s failed, reason: "
                     "user is not part of the 'require'ed group(s).",
                     r->user, r->uri);
@@ -200,7 +202,7 @@ static authz_status group_check_authorization(request_rec *r,
     return AUTHZ_DENIED;
 }
 
-APR_OPTIONAL_FN_TYPE(authz_owner_get_file_group) *authz_owner_get_file_group;
+static APR_OPTIONAL_FN_TYPE(authz_owner_get_file_group) *authz_owner_get_file_group;
 
 static authz_status filegroup_check_authorization(request_rec *r,
                                                   const char *require_args,
@@ -235,7 +237,7 @@ static authz_status filegroup_check_authorization(request_rec *r,
         return AUTHZ_DENIED;
     }
 
-    if (apr_table_elts(grpstatus)->nelts == 0) {
+    if (apr_is_empty_table(grpstatus)) {
         /* no groups available, so exit immediately */
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01670)
                         "Authorization of user %s to access %s failed, reason: "
@@ -259,7 +261,7 @@ static authz_status filegroup_check_authorization(request_rec *r,
         return AUTHZ_DENIED;
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01671)
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(01671)
                   "Authorization of user %s to access %s failed, reason: "
                   "user is not part of the 'require'ed file group.",
                   r->user, r->uri);
@@ -267,10 +269,29 @@ static authz_status filegroup_check_authorization(request_rec *r,
     return AUTHZ_DENIED;
 }
 
+static const char *groupfile_parse_config(cmd_parms *cmd, const char *require_line,
+                                          const void **parsed_require_line)
+{
+    const char *expr_err = NULL;
+    ap_expr_info_t *expr;
+
+    expr = ap_expr_parse_cmd(cmd, require_line, AP_EXPR_FLAG_STRING_RESULT,
+            &expr_err, NULL);
+
+    if (expr_err)
+        return apr_pstrcat(cmd->temp_pool,
+                           "Cannot parse expression in require line: ",
+                           expr_err, NULL);
+
+    *parsed_require_line = expr;
+
+    return NULL;
+}
+
 static const authz_provider authz_group_provider =
 {
     &group_check_authorization,
-    NULL,
+    &groupfile_parse_config,
 };
 
 static const authz_provider authz_filegroup_provider =
@@ -279,10 +300,14 @@ static const authz_provider authz_filegroup_provider =
     NULL,
 };
 
-static void register_hooks(apr_pool_t *p)
+
+static void authz_groupfile_getfns(void)
 {
     authz_owner_get_file_group = APR_RETRIEVE_OPTIONAL_FN(authz_owner_get_file_group);
+}
 
+static void register_hooks(apr_pool_t *p)
+{
     ap_register_auth_provider(p, AUTHZ_PROVIDER_GROUP, "group",
                               AUTHZ_PROVIDER_VERSION,
                               &authz_group_provider,
@@ -291,6 +316,7 @@ static void register_hooks(apr_pool_t *p)
                               AUTHZ_PROVIDER_VERSION,
                               &authz_filegroup_provider,
                               AP_AUTH_INTERNAL_PER_CONF);
+    ap_hook_optional_fn_retrieve(authz_groupfile_getfns, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 AP_DECLARE_MODULE(authz_groupfile) =

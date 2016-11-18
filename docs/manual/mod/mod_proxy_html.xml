@@ -32,9 +32,21 @@ from Clients' networks in a proxy context.</description>
 for earlier 2.x versions</compatibility>
 
 <summary>
-    <p>This module provides an output filter to rewrite HTML links in a proxy situation, to ensure that links work for users outside the proxy. It serves the same purpose as Apache's ProxyPassReverse directive does for HTTP headers, and is an essential component of a reverse proxy.</p>
+<p>This module provides an output filter to rewrite HTML links in a
+proxy situation, to ensure that links work for users outside the proxy.
+It serves the same purpose as Apache's ProxyPassReverse directive does
+for HTTP headers, and is an essential component of a reverse proxy.</p>
 
-<p>For example, if a company has an application server at appserver.example.com that is only visible from within the company's internal network, and a public webserver <code>www.example.com</code>, they may wish to provide a gateway to the application server at <code>http://www.example.com/appserver/</code>. When the application server links to itself, those links need to be rewritten to work through the gateway. mod_proxy_html serves to rewrite <code>&lt;a href="http://appserver.example.com/foo/bar.html"&gt;foobar&lt;/a&gt;</code> to <code>&lt;a href="http://www.example.com/appserver/foo/bar.html"&gt;foobar&lt;/a&gt;</code> making it accessible from outside.</p>
+<p>For example, if a company has an application server at
+<code>appserver.example.com</code> that is only visible from within
+the company's internal network, and a public webserver
+<code>www.example.com</code>, they may wish to provide a gateway to the
+application server at <code>http://www.example.com/appserver/</code>.
+When the application server links to itself, those links need to be
+rewritten to work through the gateway. mod_proxy_html serves to rewrite
+<code>&lt;a href="http://appserver.example.com/foo/bar.html"&gt;foobar&lt;/a&gt;</code> to
+<code>&lt;a href="http://www.example.com/appserver/foo/bar.html"&gt;foobar&lt;/a&gt;</code>
+making it accessible from outside.</p>
 
 <p>mod_proxy_html was originally developed at Web&#222;ing, whose
 extensive <a href="http://apache.webthing.com/mod_proxy_html/"
@@ -42,9 +54,57 @@ extensive <a href="http://apache.webthing.com/mod_proxy_html/"
 </summary>
 
 <directivesynopsis>
+<name>ProxyHTMLMeta</name>
+<description>Turns on or off extra pre-parsing of metadata in HTML
+<code>&lt;head&gt;</code> sections.</description>
+<syntax>ProxyHTMLMeta <var>On|Off</var></syntax>
+<default>ProxyHTMLMeta Off</default>
+<contextlist><context>server config</context>
+<context>virtual host</context><context>directory</context>
+</contextlist>
+<compatibility>Version 2.4 and later; available as a third-party
+module for earlier 2.x versions.</compatibility>
+
+<usage>
+    <p>This turns on or off pre-parsing of metadata in HTML
+    <code>&lt;head&gt;</code> sections.</p>
+    <p>If not required, turning ProxyHTMLMeta Off will give a small
+    performance boost by skipping this parse step.  However, it
+    is sometimes necessary for internationalisation to work correctly.</p>
+    <p>ProxyHTMLMeta has two effects.  Firstly and most importantly
+    it enables detection of character encodings declared in the form</p>
+    <pre>&lt;meta http-equiv="Content-Type" content="text/html;charset=<var>foo</var>"&gt;</pre>
+    <p>or, in the case of an XHTML document, an XML declaration.
+    It is NOT required if the charset is declared in a real HTTP header
+    (which is always preferable) from the backend server, nor if the
+    document is <var>utf-8</var> (unicode) or a subset such as ASCII.
+    You may also be able to dispense with it where documents use a
+    default declared using <directive module="mod_xml2enc"
+    >xml2EncDefault</directive>, but that risks propagating an
+    incorrect declaration.  A <directive>ProxyHTMLCharsetOut</directive>
+    can remove that risk, but is likely to be a bigger processing
+    overhead than enabling ProxyHTMLMeta.</p>
+    <p>The other effect of enabling ProxyHTMLMeta is to parse all
+    <code>&lt;meta http-equiv=...&gt;</code> declarations and convert
+    them to real HTTP headers, in keeping with the original purpose
+    of this form of the HTML &lt;meta&gt; element.</p>
+
+    <note type="warning"><title>Warning</title>
+      Because ProxyHTMLMeta promotes <strong>all</strong>
+      <code>http-equiv</code> elements to HTTP headers, it is important that you
+      only enable it in cases where you trust the HTML content as much as you
+      trust the upstream server. If the HTML is controlled by bad actors, it
+      will be possible for them to inject arbitrary, possibly malicious, HTTP
+      headers into your server's responses.
+    </note>
+</usage>
+</directivesynopsis>
+
+<directivesynopsis>
 <name>ProxyHTMLEnable</name>
 <description>Turns the proxy_html filter on or off.</description>
 <syntax>ProxyHTMLEnable <var>On|Off</var></syntax>
+<default>ProxyHTMLEnable Off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context><context>directory</context>
 </contextlist>
@@ -73,10 +133,14 @@ module for earlier 2.x versions.</compatibility>
 module for earlier 2.x versions.</compatibility>
 
 <usage>
-<p>This is the key directive for rewriting HTML links.  When parsing a document,
+<p>This is the key directive for rewriting HTML links. When parsing a document,
 whenever a link target matches <var>from-pattern</var>, the matching
 portion will be rewritten to <var>to-pattern</var>, as modified by any
-flags supplied.</p>
+flags supplied and by the 
+<directive module="mod_proxy_html">ProxyHTMLExtended</directive> directive.
+Only the elements specified using
+the <directive module="mod_proxy_html">ProxyHTMLLinks</directive> directive
+will be considered as HTML links.</p>
 
 <p>The optional third argument may define any of the following
 <strong>Flags</strong>.  Flags are case-sensitive.</p>
@@ -154,6 +218,7 @@ in mod_proxy_html 3.x for HTTPD 2.0 and 2.2 is also supported.</p>
 <description>Enables per-request interpolation of
 <directive>ProxyHTMLURLMap</directive> rules.</description>
 <syntax>ProxyHTMLInterp <var>On|Off</var></syntax>
+<default>ProxyHTMLInterp Off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context><context>directory</context>
 </contextlist>
@@ -174,7 +239,10 @@ for earlier 2.x versions</compatibility>
 <name>ProxyHTMLDocType</name>
 <description>Sets an HTML or XHTML document type declaration.</description>
 <syntax>ProxyHTMLDocType <var>HTML|XHTML [Legacy]</var><br/><strong>OR</strong>
-<br/>ProxyHTMLDocType <var>fpi [SGML|XML]</var></syntax>
+<br/>ProxyHTMLDocType <var>fpi [SGML|XML]</var><br/><strong>OR</strong>
+<br/>ProxyHTMLDocType <var>html5</var><br/><strong>OR</strong>
+<br/>ProxyHTMLDocType <var>auto</var></syntax>
+<default>ProxyHTMLDocType auto (2.5/trunk versions); no FPI (2.4.x)</default>
 <contextlist><context>server config</context>
 <context>virtual host</context><context>directory</context>
 </contextlist>
@@ -192,9 +260,9 @@ be necessary if you are proxying pre-1998 content or working with defective
 authoring/publishing tools.</p>
 <p>In the second form, it will insert your own FPI.  The optional second
 argument determines whether SGML/HTML or XML/XHTML syntax will be used.</p>
-<p>The default is changed to omitting any FPI,
-on the grounds that no FPI is better than a bogus one.  If your backend
-generates decent HTML or XHTML, set it accordingly.</p>
+<p>The third form declares documents as HTML 5.</p>
+<p>The fourth form is new in HTTPD trunk and not yet available in released
+versions, and uses libxml2's HTML parser to detect the doctype.</p>
 <p>If the first form is used, mod_proxy_html
 will also clean up the HTML to the specified standard.  It cannot
 fix every error, but it will strip out bogus elements and attributes.
@@ -221,7 +289,7 @@ for earlier 2.x versions</compatibility>
 </ul>
 <p>Take care when using these.  The fixes will correct certain authoring
 mistakes, but risk also erroneously fixing links that were correct to start with.
-Only use them if you know you have a broken backend server.</p> 
+Only use them if you know you have a broken backend server.</p>
 </usage>
 </directivesynopsis>
 
@@ -230,19 +298,27 @@ Only use them if you know you have a broken backend server.</p>
 <description>Determines whether to fix links in inline scripts, stylesheets,
 and scripting events.</description>
 <syntax>ProxyHTMLExtended <var>On|Off</var></syntax>
+<default>ProxyHTMLExtended Off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context><context>directory</context>
 </contextlist>
 <compatibility>Version 2.4 and later; available as a third-party
 for earlier 2.x versions</compatibility>
 <usage>
-<p>Set to <code>Off</code>, HTML links are rewritten according
+<p>Set to <code>Off</code>, HTML links are rewritten according to the
 <directive>ProxyHTMLURLMap</directive> directives, but links appearing
 in Javascript and CSS are ignored.</p>
-<p>Set to <code>On</code>, all scripting events and embedded scripts or
+<p>Set to <code>On</code>, all scripting events (as determined by
+<directive>ProxyHTMLEvents</directive>) and embedded scripts or
 stylesheets are also processed by the <directive>ProxyHTMLURLMap</directive>
 rules, according to the flags set for each rule.  Since this requires more
-parsing, performance will be best if you only enable it when strictly necessary.</p>
+parsing, performance will be best if you only enable it when strictly necessary.
+</p><p>
+You'll also need to take care over patterns matched, since the parser has no
+knowledge of what is a URL within an embedded script or stylesheet.
+In particular, extended matching of <code>/</code> is likely to lead to
+false matches.
+</p>
 </usage>
 </directivesynopsis>
 
@@ -250,6 +326,7 @@ parsing, performance will be best if you only enable it when strictly necessary.
 <name>ProxyHTMLStripComments</name>
 <description>Determines whether to strip HTML comments.</description>
 <syntax>ProxyHTMLStripComments <var>On|Off</var></syntax>
+<default>ProxyHTMLStripComments Off</default>
 <contextlist><context>server config</context>
 <context>virtual host</context><context>directory</context>
 </contextlist>
@@ -277,12 +354,13 @@ stylesheets.</description>
 <compatibility>Version 2.4 and later; available as a third-party
 for earlier 2.x versions</compatibility>
 <usage>
-<p>In order to parse non-HTML content (stylesheets and scripts), mod_proxy_html
+<p>In order to parse non-HTML content (stylesheets and scripts) embedded
+in HTML documents, mod_proxy_html
 has to read the entire script or stylesheet into a buffer.  This buffer will
 be expanded as necessary to hold the largest script or stylesheet in a page,
-in increments of [nnnn] as set by this directive.</p>
+in increments of <var>bytes</var> as set by this directive.</p>
 <p>The default is 8192, and will work well for almost all pages.  However,
-if you know you're proxying a lot of pages containing stylesheets and/or
+if you know you're proxying pages containing stylesheets and/or
 scripts bigger than 8K (that is, for a single script or stylesheet,
 NOT in total), it will be more efficient to set a larger buffer
 size and avoid the need to resize the buffer dynamically during a request.
@@ -301,11 +379,14 @@ size and avoid the need to resize the buffer dynamically during a request.
 for earlier 2.x versions</compatibility>
 <usage>
 <p>Specifies one or more attributes to treat as scripting events and
-apply <directive>ProxyHTMLURLMap</directive>s to where appropriate.
+apply <directive>ProxyHTMLURLMap</directive>s to where enabled.
 You can specify any number of attributes in one or more
 <code>ProxyHTMLEvents</code> directives.</p>
-<p>The default configuration defines the events in standard HTML 4
-and XHTML 1.</p>
+<p>Normally you'll set this globally.  If you set ProxyHTMLEvents in more than
+one scope so that one overrides the other, you'll need to specify a complete
+set in each of those scopes.</p>
+<p>A default configuration is supplied in <var>proxy-html.conf</var>
+and defines the events in standard HTML 4 and XHTML 1.</p>
 </usage>
 </directivesynopsis>
 
@@ -320,10 +401,33 @@ and XHTML 1.</p>
 for earlier 2.x versions</compatibility>
 <usage>
 <p>Specifies elements that have URL attributes that should be rewritten
-using standard <directive>ProxyHTMLURLMap</directive>s.  You will need one
-ProxyHTMLLinks directive per element, but it can have any number of attributes.</p>
-<p>The default configuration defines the HTML links for standard HTML 4
-and XHTML 1.</p>
+using standard <directive module="mod_proxy_html">ProxyHTMLURLMap</directive>s.
+You will need one ProxyHTMLLinks directive per element,
+but it can have any number of attributes.</p>
+<p>Normally you'll set this globally.  If you set ProxyHTMLLinks in more than
+one scope so that one overrides the other, you'll need to specify a complete
+set in each of those scopes.</p>
+<p>A default configuration is supplied in <var>proxy-html.conf</var>
+and defines the HTML links for standard HTML 4 and XHTML 1.</p>
+<example>
+<title>Examples from proxy-html.conf</title>
+<highlight language="config">
+ProxyHTMLLinks  a          href
+ProxyHTMLLinks  area       href
+ProxyHTMLLinks  link       href
+ProxyHTMLLinks  img        src longdesc usemap
+ProxyHTMLLinks  object     classid codebase data usemap
+ProxyHTMLLinks  q          cite
+ProxyHTMLLinks  blockquote cite
+ProxyHTMLLinks  ins        cite
+ProxyHTMLLinks  del        cite
+ProxyHTMLLinks  form       action
+ProxyHTMLLinks  input      src usemap
+ProxyHTMLLinks  head       profile
+ProxyHTMLLinks  base       href
+ProxyHTMLLinks  script     src for
+</highlight>
+</example>
 </usage>
 </directivesynopsis>
 
@@ -349,4 +453,3 @@ will generate output using the same encoding as the input.</p>
 
 
 </modulesynopsis>
-

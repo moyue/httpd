@@ -62,30 +62,34 @@
 #undef APLOG_MODULE_INDEX
 #define APLOG_MODULE_INDEX AP_CORE_MODULE_INDEX
 
+#define DEFAULT_HOOK_LINKS \
+    APR_HOOK_LINK(monitor) \
+    APR_HOOK_LINK(drop_privileges) \
+    APR_HOOK_LINK(mpm) \
+    APR_HOOK_LINK(mpm_query) \
+    APR_HOOK_LINK(mpm_register_timed_callback) \
+    APR_HOOK_LINK(mpm_register_poll_callback) \
+    APR_HOOK_LINK(mpm_register_poll_callback_timeout) \
+    APR_HOOK_LINK(mpm_unregister_poll_callback) \
+    APR_HOOK_LINK(mpm_get_name) \
+    APR_HOOK_LINK(mpm_resume_suspended) \
+    APR_HOOK_LINK(end_generation) \
+    APR_HOOK_LINK(child_status) \
+    APR_HOOK_LINK(output_pending) \
+    APR_HOOK_LINK(input_pending) \
+    APR_HOOK_LINK(suspend_connection) \
+    APR_HOOK_LINK(resume_connection)
+
 #if AP_ENABLE_EXCEPTION_HOOK
 APR_HOOK_STRUCT(
     APR_HOOK_LINK(fatal_exception)
-    APR_HOOK_LINK(monitor)
-    APR_HOOK_LINK(drop_privileges)
-    APR_HOOK_LINK(mpm)
-    APR_HOOK_LINK(mpm_query)
-    APR_HOOK_LINK(mpm_register_timed_callback)
-    APR_HOOK_LINK(mpm_get_name)
-    APR_HOOK_LINK(end_generation)
-    APR_HOOK_LINK(child_status)
+    DEFAULT_HOOK_LINKS
 )
 AP_IMPLEMENT_HOOK_RUN_ALL(int, fatal_exception,
                           (ap_exception_info_t *ei), (ei), OK, DECLINED)
 #else
 APR_HOOK_STRUCT(
-    APR_HOOK_LINK(monitor)
-    APR_HOOK_LINK(drop_privileges)
-    APR_HOOK_LINK(mpm)
-    APR_HOOK_LINK(mpm_query)
-    APR_HOOK_LINK(mpm_register_timed_callback)
-    APR_HOOK_LINK(mpm_get_name)
-    APR_HOOK_LINK(end_generation)
-    APR_HOOK_LINK(child_status)
+    DEFAULT_HOOK_LINKS
 )
 #endif
 AP_IMPLEMENT_HOOK_RUN_ALL(int, monitor,
@@ -93,6 +97,7 @@ AP_IMPLEMENT_HOOK_RUN_ALL(int, monitor,
 AP_IMPLEMENT_HOOK_RUN_ALL(int, drop_privileges,
                           (apr_pool_t * pchild, server_rec * s),
                           (pchild, s), OK, DECLINED)
+
 AP_IMPLEMENT_HOOK_RUN_FIRST(int, mpm,
                             (apr_pool_t *pconf, apr_pool_t *plog, server_rec *s),
                             (pconf, plog, s), DECLINED)
@@ -102,12 +107,35 @@ AP_IMPLEMENT_HOOK_RUN_FIRST(int, mpm_query,
 AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t, mpm_register_timed_callback,
                             (apr_time_t t, ap_mpm_callback_fn_t *cbfn, void *baton),
                             (t, cbfn, baton), APR_ENOTIMPL)
+AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t, mpm_resume_suspended,
+                            (conn_rec *c),
+                            (c), APR_ENOTIMPL)
+AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t, mpm_register_poll_callback,
+                            (apr_array_header_t *pds, ap_mpm_callback_fn_t *cbfn, void *baton),
+                            (pds, cbfn, baton), APR_ENOTIMPL)
+AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t, mpm_register_poll_callback_timeout,
+                            (apr_array_header_t *pds, ap_mpm_callback_fn_t *cbfn, ap_mpm_callback_fn_t *tofn, void *baton, apr_time_t timeout),
+                            (pds, cbfn, tofn, baton, timeout), APR_ENOTIMPL)
+AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t, mpm_unregister_poll_callback,
+                            (apr_array_header_t *pds),
+                            (pds), APR_ENOTIMPL)
+AP_IMPLEMENT_HOOK_RUN_FIRST(int, output_pending,
+                            (conn_rec *c), (c), DECLINED)
+AP_IMPLEMENT_HOOK_RUN_FIRST(int, input_pending,
+                            (conn_rec *c), (c), DECLINED)
+
 AP_IMPLEMENT_HOOK_VOID(end_generation,
                        (server_rec *s, ap_generation_t gen),
                        (s, gen))
 AP_IMPLEMENT_HOOK_VOID(child_status,
                        (server_rec *s, pid_t pid, ap_generation_t gen, int slot, mpm_child_status status),
                        (s,pid,gen,slot,status))
+AP_IMPLEMENT_HOOK_VOID(suspend_connection,
+                       (conn_rec *c, request_rec *r),
+                       (c, r))
+AP_IMPLEMENT_HOOK_VOID(resume_connection,
+                       (conn_rec *c, request_rec *r),
+                       (c, r))
 
 /* hooks with no args are implemented last, after disabling APR hook probes */
 #if defined(APR_HOOK_PROBES_ENABLED)
@@ -194,7 +222,6 @@ AP_DECLARE(void) ap_wait_or_timeout(apr_exit_why_e *status, int *exitcode,
 
     apr_sleep(apr_time_from_sec(1));
     ret->pid = -1;
-    return;
 }
 
 #if defined(TCP_NODELAY)
@@ -307,7 +334,7 @@ const char *ap_mpm_set_pidfile(cmd_parms *cmd, void *dummy,
 void ap_mpm_dump_pidfile(apr_pool_t *p, apr_file_t *out)
 {
     apr_file_printf(out, "PidFile: \"%s\"\n",
-                    ap_server_root_relative(p, ap_pid_fname));
+                    ap_runtime_dir_relative(p, ap_pid_fname));
 }
 
 const char *ap_mpm_set_max_requests(cmd_parms *cmd, void *dummy,
@@ -339,7 +366,7 @@ const char *ap_mpm_set_coredumpdir(cmd_parms *cmd, void *dummy,
         return err;
     }
 
-    fname = ap_server_root_relative(cmd->pool, arg);
+    fname = ap_server_root_relative(cmd->temp_pool, arg);
     if (!fname) {
         return apr_pstrcat(cmd->pool, "Invalid CoreDumpDirectory path ",
                            arg, NULL);
@@ -378,6 +405,7 @@ const char *ap_mpm_set_max_mem_free(cmd_parms *cmd, void *dummy,
         return err;
     }
 
+    errno = 0;
     value = strtol(arg, NULL, 10);
     if (value < 0 || errno == ERANGE)
         return apr_pstrcat(cmd->pool, "Invalid MaxMemFree value: ",
@@ -397,6 +425,7 @@ const char *ap_mpm_set_thread_stacksize(cmd_parms *cmd, void *dummy,
         return err;
     }
 
+    errno = 0;
     value = strtol(arg, NULL, 10);
     if (value < 0 || errno == ERANGE)
         return apr_pstrcat(cmd->pool, "Invalid ThreadStackSize value: ",
@@ -528,9 +557,35 @@ void ap_core_child_status(server_rec *s, pid_t pid,
                  pid, gen, slot, status_msg);
 }
 
-AP_DECLARE(apr_status_t) ap_mpm_register_timed_callback(apr_time_t t, ap_mpm_callback_fn_t *cbfn, void *baton)
+AP_DECLARE(apr_status_t) ap_mpm_resume_suspended(conn_rec *c)
+{
+    return ap_run_mpm_resume_suspended(c);
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_register_timed_callback(apr_time_t t,
+        ap_mpm_callback_fn_t *cbfn, void *baton)
 {
     return ap_run_mpm_register_timed_callback(t, cbfn, baton);
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_register_poll_callback(apr_array_header_t *pfds,
+        ap_mpm_callback_fn_t *cbfn, void *baton)
+{
+    return ap_run_mpm_register_poll_callback(pfds, cbfn, baton);
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_register_poll_callback_timeout(
+        apr_array_header_t *pfds, ap_mpm_callback_fn_t *cbfn,
+        ap_mpm_callback_fn_t *tofn, void *baton, apr_time_t timeout)
+{
+    return ap_run_mpm_register_poll_callback_timeout(pfds, cbfn, tofn, baton,
+            timeout);
+}
+
+AP_DECLARE(apr_status_t) ap_mpm_unregister_poll_callback(
+        apr_array_header_t *pfds)
+{
+    return ap_run_mpm_unregister_poll_callback(pfds);
 }
 
 AP_DECLARE(const char *)ap_show_mpm(void)

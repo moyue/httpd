@@ -221,9 +221,7 @@ static int filter_lookup(ap_filter_t *f, ap_filter_rec_t *filter)
                     const char *str = apr_table_get(r->headers_out,
                                                     "Cache-Control");
                     if (str) {
-                        char *str1 = apr_pstrdup(r->pool, str);
-                        ap_str_tolower(str1);
-                        if (strstr(str1, "no-transform")) {
+                        if (ap_strcasestr(str, "no-transform")) {
                             /* can't use this provider; try next */
                             continue;
                         }
@@ -278,7 +276,6 @@ static apr_status_t filter_harness(ap_filter_t *f, apr_bucket_brigade *bb)
     apr_status_t ret;
 #ifndef NO_PROTOCOL
     const char *cachecontrol;
-    char *str;
 #endif
     harness_ctx *ctx = f->ctx;
     ap_filter_rec_t *filter = f->frec;
@@ -304,9 +301,7 @@ static apr_status_t filter_harness(ap_filter_t *f, apr_bucket_brigade *bb)
                 cachecontrol = apr_table_get(f->r->headers_out,
                                              "Cache-Control");
                 if (cachecontrol) {
-                    str = apr_pstrdup(f->r->pool,  cachecontrol);
-                    ap_str_tolower(str);
-                    if (strstr(str, "no-transform")) {
+                    if (ap_strcasestr(cachecontrol, "no-transform")) {
                         ap_remove_output_filter(f);
                         return ap_pass_brigade(f->next, bb);
                     }
@@ -318,6 +313,7 @@ static apr_status_t filter_harness(ap_filter_t *f, apr_bucket_brigade *bb)
             ap_remove_output_filter(f);
             return ap_pass_brigade(f->next, bb);
         }
+        AP_DEBUG_ASSERT(ctx->func != NULL);
     }
 
     /* call the content filter with its own context, then restore our
@@ -355,7 +351,7 @@ static const char *filter_protocol(cmd_parms *cmd, void *CFG, const char *fname,
     }
     else {
         /* Find provider */
-        for (provider = filter->providers; provider; provider = provider->next){
+        for (provider = filter->providers; provider; provider = provider->next) {
             if (!strcasecmp(provider->frec->name, pname)) {
                 break;
             }
@@ -366,11 +362,14 @@ static const char *filter_protocol(cmd_parms *cmd, void *CFG, const char *fname,
     }
 
     /* Now set flags from our args */
-    for (arg = apr_strtok(apr_pstrdup(cmd->pool, proto), sep, &tok);
+    for (arg = apr_strtok(apr_pstrdup(cmd->temp_pool, proto), sep, &tok);
          arg; arg = apr_strtok(NULL, sep, &tok)) {
 
         if (!strcasecmp(arg, "change=yes")) {
             flags |= AP_FILTER_PROTO_CHANGE | AP_FILTER_PROTO_CHANGE_LENGTH;
+        }
+        if (!strcasecmp(arg, "change=no")) {
+            flags &= ~(AP_FILTER_PROTO_CHANGE | AP_FILTER_PROTO_CHANGE_LENGTH);
         }
         else if (!strcasecmp(arg, "change=1:1")) {
             flags |= AP_FILTER_PROTO_CHANGE;
@@ -445,6 +444,12 @@ static const char *add_filter(cmd_parms *cmd, void *CFG,
     ap_expr_info_t *node;
     const char *err = NULL;
 
+    /* if provider has been registered, we can look it up */
+    provider_frec = ap_get_output_filter_handle(pname);
+    if (!provider_frec) {
+        return apr_psprintf(cmd->pool, "Unknown filter provider %s", pname);
+    }
+
     /* fname has been declared with DeclareFilter, so we can look it up */
     frec = apr_hash_get(cfg->live_filters, fname, APR_HASH_KEY_STRING);
 
@@ -455,17 +460,13 @@ static const char *add_filter(cmd_parms *cmd, void *CFG,
             return c;
         }
         frec = apr_hash_get(cfg->live_filters, fname, APR_HASH_KEY_STRING);
+        frec->ftype = provider_frec->ftype;
     }
 
     if (!frec) {
         return apr_psprintf(cmd->pool, "Undeclared smart filter %s", fname);
     }
 
-    /* if provider has been registered, we can look it up */
-    provider_frec = ap_get_output_filter_handle(pname);
-    if (!provider_frec) {
-        return apr_psprintf(cmd->pool, "Unknown filter provider %s", pname);
-    }
     provider = apr_palloc(cmd->pool, sizeof(ap_filter_provider_t));
     if (expr) {
         node = ap_expr_parse_cmd(cmd, expr, 0, &err, NULL);
@@ -671,8 +672,6 @@ static void filter_insert(request_rec *r)
         }
 #endif
     }
-
-    return;
 }
 
 static void filter_hooks(apr_pool_t *pool)

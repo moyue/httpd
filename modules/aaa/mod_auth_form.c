@@ -15,7 +15,6 @@
  */
 
 #include "apr_strings.h"
-#include "apr_md5.h"                /* for apr_password_validate */
 #include "apr_lib.h"                /* for apr_isspace */
 #include "apr_base64.h"             /* for apr_base64_decode et al */
 #define APR_WANT_STRFUNC            /* for strcasecmp */
@@ -30,6 +29,7 @@
 #include "http_request.h"
 #include "ap_provider.h"
 #include "util_md5.h"
+#include "ap_expr.h"
 
 #include "mod_auth.h"
 #include "mod_session.h"
@@ -73,11 +73,11 @@ typedef struct {
     int body_set;
     int disable_no_store;
     int disable_no_store_set;
-    const char *loginsuccess;
+    ap_expr_info_t *loginsuccess;
     int loginsuccess_set;
-    const char *loginrequired;
+    ap_expr_info_t *loginrequired;
     int loginrequired_set;
-    const char *logout;
+    ap_expr_info_t *logout;
     int logout_set;
 } auth_form_config_rec;
 
@@ -149,7 +149,7 @@ static const char *add_authn_provider(cmd_parms * cmd, void *config,
     authn_provider_list *newp;
 
     newp = apr_pcalloc(cmd->pool, sizeof(authn_provider_list));
-    newp->provider_name = apr_pstrdup(cmd->pool, arg);
+    newp->provider_name = arg;
 
     /* lookup and cache the actual provider now */
     newp->provider = ap_lookup_provider(AUTHN_PROVIDER_GROUP,
@@ -171,25 +171,6 @@ static const char *add_authn_provider(cmd_parms * cmd, void *config,
         return apr_psprintf(cmd->pool,
                             "The '%s' Authn provider doesn't support "
                             "Form Authentication", newp->provider_name);
-    }
-
-    if (!ap_session_load_fn || !ap_session_get_fn || !ap_session_set_fn) {
-        ap_session_load_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_load);
-        ap_session_get_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_get);
-        ap_session_set_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_set);
-        if (!ap_session_load_fn || !ap_session_get_fn || !ap_session_set_fn) {
-            return "You must load mod_session to enable the mod_auth_form "
-                   "functions";
-        }
-    }
-
-    if (!ap_request_insert_filter_fn || !ap_request_remove_filter_fn) {
-        ap_request_insert_filter_fn = APR_RETRIEVE_OPTIONAL_FN(ap_request_insert_filter);
-        ap_request_remove_filter_fn = APR_RETRIEVE_OPTIONAL_FN(ap_request_remove_filter);
-        if (!ap_request_insert_filter_fn || !ap_request_remove_filter_fn) {
-            return "You must load mod_request to enable the mod_auth_form "
-                   "functions";
-        }
     }
 
     /* Add it to the list now. */
@@ -289,24 +270,51 @@ static const char *set_cookie_form_size(cmd_parms * cmd, void *config,
 static const char *set_login_required_location(cmd_parms * cmd, void *config, const char *loginrequired)
 {
     auth_form_config_rec *conf = (auth_form_config_rec *) config;
-    conf->loginrequired = loginrequired;
+    const char *err;
+
+    conf->loginrequired = ap_expr_parse_cmd(cmd, loginrequired, AP_EXPR_FLAG_STRING_RESULT,
+                                        &err, NULL);
+    if (err) {
+        return apr_psprintf(cmd->pool,
+                            "Could not parse login required expression '%s': %s",
+                            loginrequired, err);
+    }
     conf->loginrequired_set = 1;
+
     return NULL;
 }
 
 static const char *set_login_success_location(cmd_parms * cmd, void *config, const char *loginsuccess)
 {
     auth_form_config_rec *conf = (auth_form_config_rec *) config;
-    conf->loginsuccess = loginsuccess;
+    const char *err;
+
+    conf->loginsuccess = ap_expr_parse_cmd(cmd, loginsuccess, AP_EXPR_FLAG_STRING_RESULT,
+                                        &err, NULL);
+    if (err) {
+        return apr_psprintf(cmd->pool,
+                            "Could not parse login success expression '%s': %s",
+                            loginsuccess, err);
+    }
     conf->loginsuccess_set = 1;
+
     return NULL;
 }
 
 static const char *set_logout_location(cmd_parms * cmd, void *config, const char *logout)
 {
     auth_form_config_rec *conf = (auth_form_config_rec *) config;
-    conf->logout = logout;
+    const char *err;
+
+    conf->logout = ap_expr_parse_cmd(cmd, logout, AP_EXPR_FLAG_STRING_RESULT,
+                                        &err, NULL);
+    if (err) {
+        return apr_psprintf(cmd->pool,
+                            "Could not parse logout required expression '%s': %s",
+                            logout, err);
+    }
     conf->logout_set = 1;
+
     return NULL;
 }
 
@@ -412,7 +420,7 @@ static void note_cookie_auth_failure(request_rec * r)
 static int hook_note_cookie_auth_failure(request_rec * r,
                                          const char *auth_type)
 {
-    if (strcasecmp(auth_type, "form"))
+    if (ap_cstr_casecmp(auth_type, "form"))
         return DECLINED;
 
     note_cookie_auth_failure(r);
@@ -461,37 +469,43 @@ static void set_notes_auth(request_rec * r,
  * Get the auth username and password from the main request
  * notes table, if present.
  */
-static void get_notes_auth(request_rec * r,
+static void get_notes_auth(request_rec *r,
                            const char **user, const char **pw,
                            const char **method, const char **mimetype)
 {
     const char *authname;
+    request_rec *m = r;
 
     /* find the main request */
-    while (r->main) {
-        r = r->main;
+    while (m->main) {
+        m = m->main;
     }
     /* find the first redirect */
-    while (r->prev) {
-        r = r->prev;
+    while (m->prev) {
+        m = m->prev;
     }
 
     /* have we isolated the user and pw before? */
-    authname = ap_auth_name(r);
+    authname = ap_auth_name(m);
     if (user) {
-        *user = (char *) apr_table_get(r->notes, apr_pstrcat(r->pool, authname, "-user", NULL));
+        *user = (char *) apr_table_get(m->notes, apr_pstrcat(m->pool, authname, "-user", NULL));
     }
     if (pw) {
-        *pw = (char *) apr_table_get(r->notes, apr_pstrcat(r->pool, authname, "-pw", NULL));
+        *pw = (char *) apr_table_get(m->notes, apr_pstrcat(m->pool, authname, "-pw", NULL));
     }
     if (method) {
-        *method = (char *) apr_table_get(r->notes, apr_pstrcat(r->pool, authname, "-method", NULL));
+        *method = (char *) apr_table_get(m->notes, apr_pstrcat(m->pool, authname, "-method", NULL));
     }
     if (mimetype) {
-        *mimetype = (char *) apr_table_get(r->notes, apr_pstrcat(r->pool, authname, "-mimetype", NULL));
+        *mimetype = (char *) apr_table_get(m->notes, apr_pstrcat(m->pool, authname, "-mimetype", NULL));
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_TRACE6, 0, r,
+    /* set the user, even though the user is unauthenticated at this point */
+    if (user && *user) {
+        r->user = (char *) *user;
+    }
+
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                   "from notes: user: %s, pw: %s, method: %s, mimetype: %s",
                   user ? *user : "<null>", pw ? *pw : "<null>",
                   method ? *method : "<null>", mimetype ? *mimetype : "<null>");
@@ -534,6 +548,7 @@ static apr_status_t get_session_auth(request_rec * r,
 {
     const char *authname = ap_auth_name(r);
     session_rec *z = NULL;
+
     ap_session_load_fn(r, &z);
 
     if (user) {
@@ -551,7 +566,7 @@ static apr_status_t get_session_auth(request_rec * r,
         r->user = (char *) *user;
     }
 
-    ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, r,
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                   "from session: " MOD_SESSION_USER ": %s, " MOD_SESSION_PW
                   ": %s, " MOD_AUTH_FORM_HASH ": %s",
                   user ? *user : "<null>", pw ? *pw : "<null>",
@@ -598,7 +613,7 @@ static int get_form_auth(request_rec * r,
 
     /* have we isolated the user and pw before? */
     get_notes_auth(r, sent_user, sent_pw, sent_method, sent_mimetype);
-    if (*sent_user && *sent_pw) {
+    if (sent_user && *sent_user && sent_pw && *sent_pw) {
         return OK;
     }
 
@@ -653,13 +668,33 @@ static int get_form_auth(request_rec * r,
         }
     }
 
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                  "from form: user: %s, pw: %s, method: %s, mimetype: %s, location: %s",
+                  sent_user ? *sent_user : "<null>", sent_pw ? *sent_pw : "<null>",
+                  sent_method ? *sent_method : "<null>",
+                  sent_mimetype ? *sent_mimetype : "<null>",
+                  sent_loc ? *sent_loc : "<null>");
+
     /* set the user, even though the user is unauthenticated at this point */
-    if (*sent_user) {
+    if (sent_user && *sent_user) {
         r->user = (char *) *sent_user;
     }
 
     /* a missing username or missing password means auth denied */
-    if (!sent_user || !*sent_user || !sent_pw || !*sent_pw) {
+    if (!sent_user || !*sent_user) {
+
+        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(02982)
+                      "form parsed, but username field '%s' was missing or empty, unauthorized",
+                      username);
+
+        return HTTP_UNAUTHORIZED;
+    }
+    if (!sent_pw || !*sent_pw) {
+
+        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, APLOGNO(02983)
+                      "form parsed, but password field '%s' was missing or empty, unauthorized",
+                      password);
+
         return HTTP_UNAUTHORIZED;
     }
 
@@ -763,7 +798,7 @@ static int check_authn(request_rec * r, const char *sent_user, const char *sent_
 
         apr_table_unset(r->notes, AUTHN_PROVIDER_NAME_NOTE);
 
-        /* Something occured. Stop checking. */
+        /* Something occurred. Stop checking. */
         if (auth_result != AUTH_USER_NOT_FOUND) {
             break;
         }
@@ -807,7 +842,7 @@ static int check_authn(request_rec * r, const char *sent_user, const char *sent_
             break;
         }
 
-        /* If we're returning 403, tell them to try again. */
+        /* If we're returning 401, tell them to try again. */
         if (return_code == HTTP_UNAUTHORIZED) {
             note_cookie_auth_failure(r);
         }
@@ -851,12 +886,13 @@ static int authenticate_form_authn(request_rec * r)
     const char *sent_user = NULL, *sent_pw = NULL, *sent_hash = NULL;
     const char *sent_loc = NULL, *sent_method = "GET", *sent_mimetype = NULL;
     const char *current_auth = NULL;
+    const char *err;
     apr_status_t res;
     int rv = HTTP_UNAUTHORIZED;
 
     /* Are we configured to be Form auth? */
     current_auth = ap_auth_type(r);
-    if (!current_auth || strcasecmp(current_auth, "form")) {
+    if (!current_auth || ap_cstr_casecmp(current_auth, "form")) {
         return DECLINED;
     }
 
@@ -867,16 +903,16 @@ static int authenticate_form_authn(request_rec * r)
      * never be secure. Abort the auth attempt in this case.
      */
     if (PROXYREQ_PROXY == r->proxyreq) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR,
-                      0, r, APLOGNO(01809) "form auth cannot be used for proxy "
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01809)
+                      "form auth cannot be used for proxy "
                       "requests due to XSS risk, access denied: %s", r->uri);
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
     /* We need an authentication realm. */
     if (!ap_auth_name(r)) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR,
-                      0, r, APLOGNO(01810) "need AuthName: %s", r->uri);
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01810)
+                      "need AuthName: %s", r->uri);
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
@@ -1001,8 +1037,17 @@ static int authenticate_form_authn(request_rec * r)
                     return HTTP_MOVED_TEMPORARILY;
                 }
                 if (conf->loginsuccess) {
-                    apr_table_set(r->headers_out, "Location", conf->loginsuccess);
-                    return HTTP_MOVED_TEMPORARILY;
+                    const char *loginsuccess = ap_expr_str_exec(r,
+                            conf->loginsuccess, &err);
+                    if (!err) {
+                        apr_table_set(r->headers_out, "Location", loginsuccess);
+                        return HTTP_MOVED_TEMPORARILY;
+                    }
+                    else {
+                        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02339)
+                                      "Can't evaluate login success expression: %s", err);
+                        return HTTP_INTERNAL_SERVER_ERROR;
+                    }
                 }
             }
         }
@@ -1014,8 +1059,17 @@ static int authenticate_form_authn(request_rec * r)
      * instead?
      */
     if (HTTP_UNAUTHORIZED == rv && conf->loginrequired) {
-        apr_table_set(r->headers_out, "Location", conf->loginrequired);
-        return HTTP_MOVED_TEMPORARILY;
+        const char *loginrequired = ap_expr_str_exec(r,
+                conf->loginrequired, &err);
+        if (!err) {
+            apr_table_set(r->headers_out, "Location", loginrequired);
+            return HTTP_MOVED_TEMPORARILY;
+        }
+        else {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02340)
+                          "Can't evaluate login required expression: %s", err);
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
     }
 
     /* did the user ask to be redirected on login success? */
@@ -1059,6 +1113,7 @@ static int authenticate_form_authn(request_rec * r)
 static int authenticate_form_login_handler(request_rec * r)
 {
     auth_form_config_rec *conf;
+    const char *err;
 
     const char *sent_user = NULL, *sent_pw = NULL, *sent_loc = NULL;
     int rv;
@@ -1089,8 +1144,17 @@ static int authenticate_form_login_handler(request_rec * r)
                 return HTTP_MOVED_TEMPORARILY;
             }
             if (conf->loginsuccess) {
-                apr_table_set(r->headers_out, "Location", conf->loginsuccess);
-                return HTTP_MOVED_TEMPORARILY;
+                const char *loginsuccess = ap_expr_str_exec(r,
+                        conf->loginsuccess, &err);
+                if (!err) {
+                    apr_table_set(r->headers_out, "Location", loginsuccess);
+                    return HTTP_MOVED_TEMPORARILY;
+                }
+                else {
+                    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02341)
+                                  "Can't evaluate login success expression: %s", err);
+                    return HTTP_INTERNAL_SERVER_ERROR;
+                }
             }
             return HTTP_OK;
         }
@@ -1098,8 +1162,17 @@ static int authenticate_form_login_handler(request_rec * r)
 
     /* did we prefer to be redirected to the login page on failure instead? */
     if (HTTP_UNAUTHORIZED == rv && conf->loginrequired) {
-        apr_table_set(r->headers_out, "Location", conf->loginrequired);
-        return HTTP_MOVED_TEMPORARILY;
+        const char *loginrequired = ap_expr_str_exec(r,
+                conf->loginrequired, &err);
+        if (!err) {
+            apr_table_set(r->headers_out, "Location", loginrequired);
+            return HTTP_MOVED_TEMPORARILY;
+        }
+        else {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02342)
+                          "Can't evaluate login required expression: %s", err);
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
     }
 
     return rv;
@@ -1120,6 +1193,7 @@ static int authenticate_form_login_handler(request_rec * r)
 static int authenticate_form_logout_handler(request_rec * r)
 {
     auth_form_config_rec *conf;
+    const char *err;
 
     if (strcmp(r->handler, FORM_LOGOUT_HANDLER)) {
         return DECLINED;
@@ -1139,8 +1213,17 @@ static int authenticate_form_logout_handler(request_rec * r)
 
     /* if set, internal redirect to the logout page */
     if (conf->logout) {
-        apr_table_addn(r->headers_out, "Location", conf->logout);
-        return HTTP_TEMPORARY_REDIRECT;
+        const char *logout = ap_expr_str_exec(r,
+                conf->logout, &err);
+        if (!err) {
+            apr_table_addn(r->headers_out, "Location", logout);
+            return HTTP_TEMPORARY_REDIRECT;
+        }
+        else {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(02343)
+                          "Can't evaluate logout expression: %s", err);
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
     }
 
     return HTTP_OK;
@@ -1190,8 +1273,40 @@ static int authenticate_form_redirect_handler(request_rec * r)
 
 }
 
+static int authenticate_form_post_config(apr_pool_t *pconf, apr_pool_t *plog,
+        apr_pool_t *ptemp, server_rec *s)
+{
+
+    if (!ap_session_load_fn || !ap_session_get_fn || !ap_session_set_fn) {
+        ap_session_load_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_load);
+        ap_session_get_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_get);
+        ap_session_set_fn = APR_RETRIEVE_OPTIONAL_FN(ap_session_set);
+        if (!ap_session_load_fn || !ap_session_get_fn || !ap_session_set_fn) {
+            ap_log_error(APLOG_MARK, APLOG_CRIT, 0, NULL, APLOGNO(02617)
+                    "You must load mod_session to enable the mod_auth_form "
+                                       "functions");
+            return !OK;
+        }
+    }
+
+    if (!ap_request_insert_filter_fn || !ap_request_remove_filter_fn) {
+        ap_request_insert_filter_fn = APR_RETRIEVE_OPTIONAL_FN(ap_request_insert_filter);
+        ap_request_remove_filter_fn = APR_RETRIEVE_OPTIONAL_FN(ap_request_remove_filter);
+        if (!ap_request_insert_filter_fn || !ap_request_remove_filter_fn) {
+            ap_log_error(APLOG_MARK, APLOG_CRIT, 0, NULL, APLOGNO(02618)
+                    "You must load mod_request to enable the mod_auth_form "
+                                       "functions");
+            return !OK;
+        }
+    }
+
+    return OK;
+}
+
 static void register_hooks(apr_pool_t * p)
 {
+    ap_hook_post_config(authenticate_form_post_config,NULL,NULL,APR_HOOK_MIDDLE);
+
 #if AP_MODULE_MAGIC_AT_LEAST(20080403,1)
     ap_hook_check_authn(authenticate_form_authn, NULL, NULL, APR_HOOK_MIDDLE,
                         AP_AUTH_INTERNAL_PER_CONF);
